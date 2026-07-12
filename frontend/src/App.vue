@@ -5,7 +5,15 @@ import { theme, toggleTheme } from './composables/useTheme'
 <template>
   <div class="layout">
     <header class="nav">
-      <div class="brand">📈 PortLab</div>
+      <div class="brand">
+        <svg class="brand-logo" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M742.4 192H281.6a134.4 134.4 0 0 0-134.4 134.4v371.2c0 74.24 60.16 134.4 134.4 134.4h460.8c74.24 0 134.4-60.16 134.4-134.4v-371.2c0-74.24-60.16-134.4-134.4-134.4zM281.6 256h460.8a70.4 70.4 0 0 1 70.4 70.4v371.2A70.4 70.4 0 0 1 742.4 768H281.6a70.4 70.4 0 0 1-70.4-70.4v-371.2A70.4 70.4 0 0 1 281.6 256z" fill="#FB553C"/>
+          <path d="M332.8 500.6336m38.4 0l0 0q38.4 0 38.4 38.4l0 88.1664q0 38.4-38.4 38.4l0 0q-38.4 0-38.4-38.4l0-88.1664q0-38.4 38.4-38.4Z" fill="#FB553C"/>
+          <path d="M614.4 444.5952m38.4 0l0 0q38.4 0 38.4 38.4l0 144.2048q0 38.4-38.4 38.4l0 0q-38.4 0-38.4-38.4l0-144.2048q0-38.4 38.4-38.4Z" fill="#FB553C"/>
+          <path d="M473.6 352.4096m38.4 0l0 0q38.4 0 38.4 38.4l0 236.3904q0 38.4-38.4 38.4l0 0q-38.4 0-38.4-38.4l0-236.3904q0-38.4 38.4-38.4Z" fill="#FB553C"/>
+        </svg>
+        PortLab
+      </div>
       <nav class="nav-links">
         <RouterLink to="/">首页</RouterLink>
         <RouterLink to="/backtest">定投回测</RouterLink>
@@ -98,6 +106,12 @@ body {
   padding-right: 24px;
   margin-right: 8px;
   border-right: 1px solid var(--border);
+}
+.brand-logo {
+  width: 22px;
+  height: 22px;
+  margin-right: 8px;
+  flex-shrink: 0;
 }
 .nav-links {
   display: flex;
