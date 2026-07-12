@@ -4,14 +4,13 @@ from datetime import date
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
-from ..models.raw import RawPriceDaily
 from ..schemas.common import ApiResponse
 from ..services.fetcher import FetchError, get_fetcher
+from ..services.storage import upsert_bars
 
 router = APIRouter()
 
@@ -45,34 +44,10 @@ def fetch_prices(req: FetchRequest, db: Session = Depends(get_db)) -> ApiRespons
         bars = fetcher.fetch_daily(req.symbol, req.start_date, req.end_date)
     except FetchError as e:
         return ApiResponse.error(message=str(e))
-    except Exception as e:  # noqa: BLE001 —— 对调用方屏蔽底层异常类型
+    except Exception as e:  # noqa: BLE001
         return ApiResponse.error(message=f"数据拉取失败: {e}")
 
-    rows = [
-        {
-            "symbol": b.symbol,
-            "trade_date": b.trade_date,
-            "open": b.open,
-            "close": b.close,
-            "high": b.high,
-            "low": b.low,
-            "volume": b.volume,
-        }
-        for b in bars
-    ]
-
-    if rows:
-        stmt = mysql_insert(RawPriceDaily).values(rows)
-        stmt = stmt.on_duplicate_key_update(
-            open=stmt.inserted.open,
-            close=stmt.inserted.close,
-            high=stmt.inserted.high,
-            low=stmt.inserted.low,
-            volume=stmt.inserted.volume,
-        )
-        db.execute(stmt)
-        db.commit()
-
+    rows_upserted = upsert_bars(db, bars)
     first_date = bars[0].trade_date if bars else None
     last_date = bars[-1].trade_date if bars else None
 
@@ -81,7 +56,7 @@ def fetch_prices(req: FetchRequest, db: Session = Depends(get_db)) -> ApiRespons
             symbol=req.symbol,
             start_date=req.start_date,
             end_date=req.end_date,
-            rows_upserted=len(rows),
+            rows_upserted=rows_upserted,
             first_date=first_date,
             last_date=last_date,
         )

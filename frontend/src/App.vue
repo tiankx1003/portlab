@@ -8,6 +8,7 @@
       <div class="brand">📈 PortLab</div>
       <nav>
         <RouterLink to="/">首页</RouterLink>
+        <RouterLink to="/backtest">定投回测</RouterLink>
       </nav>
     </header>
     <main class="content">

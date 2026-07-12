@@ -5,7 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from .api import data, health
+from .api import backtest, data, health, symbols
 from .schemas.common import ApiResponse
 
 app = FastAPI(title="PortLab", version="0.1.0")
@@ -34,3 +34,5 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(data.router, prefix="/api/data", tags=["data"])
+app.include_router(backtest.router, prefix="/api/backtest", tags=["backtest"])
+app.include_router(symbols.router, prefix="/api/symbols", tags=["symbols"])
