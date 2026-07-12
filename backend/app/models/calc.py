@@ -2,6 +2,7 @@
 
 from datetime import date
 from decimal import Decimal
+from typing import Optional
 
 from sqlalchemy import BigInteger, Date, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
@@ -21,3 +22,6 @@ class CalcDcaBacktest(Base):
     market_value: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     pnl: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     return_rate: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
+    # 智能定投相关（普通模式：invest 日为 1.0000 / 设定金额，非 invest 日为 NULL）
+    deduction_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 4), nullable=True)
+    actual_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(16, 2), nullable=True)

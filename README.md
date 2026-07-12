@@ -25,13 +25,13 @@ cp .env.example .env
 docker compose up -d --build
 
 # 3. 验证
-curl http://localhost:8000/api/health   # {"code":0,"message":"success","data":{"status":"ok"}}
+curl http://localhost:8010/api/health   # {"code":0,"message":"success","data":{"status":"ok"}}
 ```
 
 启动后访问：
 
 - 前端：http://localhost:5173
-- 后端 API / Swagger 文档：http://localhost:8000/docs
+- 后端 API / Swagger 文档：http://localhost:8010/docs
 
 > **首次拉取基础镜像提示**：若 `docker compose up` 因拉不到 `mysql` / `python` / `node` 镜像失败（Docker Hub 不可达），可经国内镜像源拉取并重打 tag，例如：
 > ```bash
@@ -53,7 +53,7 @@ curl http://localhost:8000/api/health   # {"code":0,"message":"success","data":{
 ```bash
 cd backend
 uv sync                     # 安装依赖
-uv run uvicorn app.main:app --reload --port 8000
+uv run uvicorn app.main:app --reload --port 8010
 ```
 
 需配置数据库连接（环境变量或 `.env`）：`DB_HOST` `DB_PORT` `DB_USER` `DB_PASS` `DB_NAME`。
@@ -63,10 +63,10 @@ uv run uvicorn app.main:app --reload --port 8000
 ```bash
 cd frontend
 npm install
-npm run dev                 # http://localhost:5173 ，/api 默认代理到 http://localhost:8000
+npm run dev                 # http://localhost:5173 ，/api 默认代理到 http://localhost:8010
 ```
 
-本地裸跑前后端时，可在 `frontend/vite.config.ts` 中把代理目标改为 `http://127.0.0.1:8000`（或设环境变量 `VITE_BACKEND_TARGET`）。
+本地裸跑前后端时，可在 `frontend/vite.config.ts` 中把代理目标改为 `http://127.0.0.1:8010`（或设环境变量 `VITE_BACKEND_TARGET`）。
 
 ### 数据库
 

@@ -3,7 +3,7 @@
 from datetime import date
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
 from ..config import settings
@@ -11,14 +11,23 @@ from ..database import get_db
 from ..schemas.common import ApiResponse
 from ..services.fetcher import FetchError, get_fetcher
 from ..services.storage import upsert_bars
+from ..utils.symbol import strip_market_prefix
 
 router = APIRouter()
 
 
 class FetchRequest(BaseModel):
-    symbol: str = Field(..., min_length=1, max_length=32, description="标的代码，如 000001")
+    symbol: str = Field(..., min_length=1, max_length=32, description="标的代码，如 000001 / SZ000001")
     start_date: date
     end_date: date
+
+    @field_validator("symbol")
+    @classmethod
+    def _normalize_symbol(cls, v: str) -> str:
+        v = strip_market_prefix(v)
+        if not v:
+            raise ValueError("标的代码不能为空")
+        return v
 
     @model_validator(mode="after")
     def _validate_dates(self) -> "FetchRequest":

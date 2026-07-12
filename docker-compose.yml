@@ -32,14 +32,14 @@ services:
       DB_NAME: ${MYSQL_DATABASE:-portlab}
       DATA_SOURCE: ${DATA_SOURCE:-akshare}
     ports:
-      - "8000:8000"
+      - "8010:8010"
     depends_on:
       mysql:
         condition: service_healthy
     volumes:
       - ./backend:/app
       - /app/.venv
-    command: [".venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    command: [".venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8010", "--reload"]
 
   frontend:
     build: ./frontend

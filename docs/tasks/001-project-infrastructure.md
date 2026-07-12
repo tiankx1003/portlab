@@ -15,7 +15,7 @@
 包含以下服务：
 
 - **mysql**: MySQL 8.x，持久化挂载 `./mysql/data`，端口 3306
-- **backend**: Python FastAPI 应用，依赖 mysql，暴露 8000 端口
+- **backend**: Python FastAPI 应用，依赖 mysql，暴露 8010 端口
 - **frontend**: Vue 3 + Vite 开发服务器，暴露 5173 端口，通过 proxy 转发 `/api` 到 backend
 
 ### 2. backend 骨架
@@ -32,7 +32,7 @@
 - `package.json`：vue 3、vue-router、axios、echarts、vite
 - `src/App.vue`：基础布局，含导航和 `<router-view />`
 - `src/api/`：axios 实例封装，baseURL 指向 `/api`
-- `vite.config.ts`：proxy `/api` → `http://backend:8000`
+- `vite.config.ts`：proxy `/api` → `http://backend:8010`
 - `Dockerfile`：基于 node:20-alpine
 
 ### 4. MySQL 初始化
@@ -57,7 +57,7 @@
 ## 验收标准
 
 - [ ] `docker compose up -d` 可一键启动全部服务，无报错
-- [ ] `GET http://localhost:8000/api/health` 返回 `{"code": 0, "message": "success", "data": {"status": "ok"}}`
+- [ ] `GET http://localhost:8010/api/health` 返回 `{"code": 0, "message": "success", "data": {"status": "ok"}}`
 - [ ] 前端 `http://localhost:5173` 可正常访问
 - [ ] MySQL 表结构通过 `DESC` 验证存在
 - [ ] `.env.example` 包含所有需要的环境变量

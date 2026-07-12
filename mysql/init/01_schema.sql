@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS calc_dca_backtest (
     market_value  DECIMAL(18,2) NOT NULL DEFAULT 0 COMMENT '当日市值',
     pnl           DECIMAL(18,2) NOT NULL DEFAULT 0 COMMENT '累计盈亏',
     return_rate   DECIMAL(12,4) NOT NULL DEFAULT 0 COMMENT '收益率(%)',
+    deduction_rate DECIMAL(5,4) NULL COMMENT '扣款率(1.0=100%)，智能定投',
+    actual_amount  DECIMAL(16,2) NULL COMMENT '当期实际投入金额，智能定投浮动',
     updated_at    TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP
                                     ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (task_id, trade_date),

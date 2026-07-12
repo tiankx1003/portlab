@@ -12,15 +12,16 @@ defineProps<{ label: string; value: string; color?: string; hint?: string }>()
 
 <style scoped>
 .metric-card {
-  border: 1px solid #eee;
+  flex: 1 1 0;
+  min-width: 120px;
+  border: 1px solid var(--border-light);
   border-radius: 8px;
-  padding: 12px 16px;
-  background: #fff;
-  min-width: 130px;
+  padding: 12px 14px;
+  background: var(--surface);
 }
 .label {
   font-size: 12px;
-  color: #8a8f99;
+  color: var(--text-tertiary);
 }
 .value {
   font-size: 22px;
@@ -30,7 +31,7 @@ defineProps<{ label: string; value: string; color?: string; hint?: string }>()
 }
 .hint {
   font-size: 11px;
-  color: #8a8f99;
+  color: var(--text-tertiary);
   margin-top: 2px;
 }
 </style>

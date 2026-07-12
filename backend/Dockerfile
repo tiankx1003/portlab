@@ -22,6 +22,6 @@ RUN uv sync --no-dev
 # 再拷源码
 COPY . .
 
-EXPOSE 8000
+EXPOSE 8010
 
-CMD [".venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD [".venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8010"]

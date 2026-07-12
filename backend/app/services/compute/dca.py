@@ -1,10 +1,12 @@
 """定投（DCA）回测计算引擎。
 
-所有金额/份额计算使用 Decimal 保证精度；年化收益率（XIRR）与最大回撤
-属于近似统计指标，转 float 计算。
+支持两种模式：
+- ``normal``：普通定投，每期固定金额。
+- ``smart``：智能定投（均线策略），按 T-1 日收盘价相对 MA(ma_period) 的偏离度
+  动态调整扣款率——高位少投（最低 50%）、低位多投（最高 200%）。
 
-幂等：task_id 由参数确定性生成，重复执行同一组参数会先删除旧结果再重算，
-不会产生重复数据。
+所有金额/份额计算使用 Decimal；年化与最大回撤转 float 近似。
+task_id 由全部参数（含 mode/ma_period）确定性生成，重复执行幂等。
 """
 
 from dataclasses import dataclass
@@ -19,8 +21,8 @@ from ...models.raw import RawPriceDaily
 from ...models.result import ResultDcaSummary
 
 _Q8 = Decimal("0.00000001")  # 份额 8 位
+_Q4 = Decimal("0.0001")  # 百分比/扣款率 4 位
 _Q2 = Decimal("0.01")  # 金额 2 位
-_Q4 = Decimal("0.0001")  # 百分比 4 位
 
 
 class ComputeError(Exception):
@@ -34,47 +36,139 @@ class DcaParams:
     amount: Decimal
     start_date: date
     end_date: date
-    invest_day: int  # weekly: 0-6(周一~周日); monthly: 1-28
+    invest_day: int  # weekly: 0-6; monthly: 1-28
+    mode: str = "normal"  # 'normal' | 'smart'
+    ma_period: int = 250
 
 
 def make_task_id(p: DcaParams) -> str:
-    """由参数确定性生成 task_id（同名参数 → 同 id，保证幂等）。"""
+    """由全部参数确定性生成 task_id（含 mode/ma_period），保证幂等。"""
     return (
         f"dca_{p.symbol}_{p.start_date:%Y%m%d}_{p.end_date:%Y%m%d}"
-        f"_{p.frequency}_{p.amount}_{p.invest_day}"
+        f"_{p.frequency}_{p.amount}_{p.invest_day}_{p.mode}_{p.ma_period}"
     )
+
+
+def lookback_days(mode: str, ma_period: int) -> int:
+    """智能模式需回溯足够历史以计算 MA；返回额外向前加载的日历天数。"""
+    return ma_period * 2 if mode == "smart" else 0
 
 
 def run_backtest(db: Session, p: DcaParams) -> str:
     """执行回测，逐日结果写入 calc_dca_backtest，汇总写入 result_dca_summary。返回 task_id。"""
     task_id = make_task_id(p)
+    load_start = p.start_date - timedelta(days=lookback_days(p.mode, p.ma_period))
 
-    trading_days = _load_prices(db, p)
-    if not trading_days:
+    all_days = _load_prices(db, p.symbol, load_start, p.end_date)
+    if not any(d >= p.start_date for d, _ in all_days):
         raise ComputeError(
             f"标的 {p.symbol} 在 {p.start_date}~{p.end_date} 无行情数据，请先拉取数据"
         )
 
-    invest_dates = _gen_invest_dates(p, trading_days)
+    ma_series = _compute_ma(all_days, p.ma_period) if p.mode == "smart" else {}
+    invest_dates = _gen_invest_dates(p, [(d, c) for d, c in all_days if d >= p.start_date])
 
-    calc_rows, market_values, cashflows, invest_count = _daily_calc(task_id, p, trading_days, invest_dates)
+    calc_rows, market_values, cashflows, invest_count = _daily_calc(
+        task_id, p, all_days, ma_series, invest_dates
+    )
 
-    summary = _build_summary(task_id, p, trading_days, market_values, cashflows, invest_count)
+    dates = [r.trade_date for r in calc_rows]
+    summary = _build_summary(task_id, p, dates, market_values, cashflows, invest_count)
 
     _write_results(db, task_id, calc_rows, summary)
     return task_id
 
 
+# --------------------------- 智能定投策略 ---------------------------
+
+
+def _deduction_rate(deviation_pct: float) -> Decimal:
+    """按偏离度(%)查扣款率表。高位少投(≥0)，低位多投(<0)。"""
+    x = deviation_pct
+    if x >= 0:  # 高位少投，下限 50%
+        if x < 2:
+            r = 1.0
+        elif x < 4:
+            r = 0.9
+        elif x < 6:
+            r = 0.8
+        elif x < 8:
+            r = 0.7
+        elif x < 10:
+            r = 0.6
+        else:
+            r = 0.5
+    else:  # 低位多投，上限 200%
+        if x >= -2:
+            r = 1.0
+        elif x >= -4:
+            r = 1.1
+        elif x >= -6:
+            r = 1.2
+        elif x >= -8:
+            r = 1.3
+        elif x >= -10:
+            r = 1.4
+        elif x >= -12:
+            r = 1.5
+        elif x >= -14:
+            r = 1.6
+        elif x >= -16:
+            r = 1.7
+        elif x >= -18:
+            r = 1.8
+        elif x >= -20:
+            r = 1.9
+        else:
+            r = 2.0
+    return Decimal(str(r)).quantize(_Q4)
+
+
+def _compute_ma(days: list[tuple[date, Decimal]], period: int) -> dict[date, Decimal]:
+    """滚动简单均线（前缀和），仅对历史 ≥ period 的日期给出值。"""
+    dates = [d for d, _ in days]
+    closes = [c for _, c in days]
+    n = len(closes)
+    prefix: list[Decimal] = [Decimal(0)]
+    for c in closes:
+        prefix.append(prefix[-1] + c)
+    ma: dict[date, Decimal] = {}
+    big_period = Decimal(period)
+    for i in range(n):
+        if i >= period - 1:
+            window_sum = prefix[i + 1] - prefix[i + 1 - period]
+            ma[dates[i]] = (window_sum / big_period).quantize(_Q4)
+    return ma
+
+
+def _smart_rate(
+    d: date,
+    prev_date: dict[date, date | None],
+    close_by_date: dict[date, Decimal],
+    ma_series: dict[date, Decimal],
+) -> Decimal:
+    """取 T-1 日收盘价与 MA 算偏离度 → 扣款率；数据不足回退 100%。"""
+    t1 = prev_date.get(d)
+    if not t1:
+        return Decimal("1.0000")
+    t1_close = close_by_date.get(t1)
+    t1_ma = ma_series.get(t1)
+    if not t1_close or not t1_ma or t1_ma <= 0:
+        return Decimal("1.0000")
+    dev = float((t1_close - t1_ma) / t1_ma * Decimal(100))
+    return _deduction_rate(dev)
+
+
 # --------------------------- 内部实现 ---------------------------
 
 
-def _load_prices(db: Session, p: DcaParams) -> list[tuple[date, Decimal]]:
+def _load_prices(db: Session, symbol: str, start: date, end: date) -> list[tuple[date, Decimal]]:
     rows = db.execute(
         select(RawPriceDaily.trade_date, RawPriceDaily.close)
         .where(
-            RawPriceDaily.symbol == p.symbol,
-            RawPriceDaily.trade_date >= p.start_date,
-            RawPriceDaily.trade_date <= p.end_date,
+            RawPriceDaily.symbol == symbol,
+            RawPriceDaily.trade_date >= start,
+            RawPriceDaily.trade_date <= end,
         )
         .order_by(RawPriceDaily.trade_date)
     ).all()
@@ -98,7 +192,7 @@ def _gen_invest_dates(p: DcaParams, trading_days: list[tuple[date, Decimal]]) ->
             try:
                 candidates.append(date(y, m, p.invest_day))
             except ValueError:
-                pass  # invest_day 不合法（理论上 1-28 不会触发）
+                pass
             m += 1
             if m > 12:
                 m, y = 1, y + 1
@@ -110,7 +204,6 @@ def _gen_invest_dates(p: DcaParams, trading_days: list[tuple[date, Decimal]]) ->
         if c in trading_set:
             result.add(c)
             continue
-        # 顺延到下一个 >= c 的交易日
         for td in sorted_days:
             if td >= c:
                 if td <= p.end_date:
@@ -119,7 +212,13 @@ def _gen_invest_dates(p: DcaParams, trading_days: list[tuple[date, Decimal]]) ->
     return result
 
 
-def _daily_calc(task_id, p, trading_days, invest_dates):
+def _daily_calc(task_id, p, all_days, ma_series, invest_dates):
+    close_by_date = {d: c for d, c in all_days}
+    sorted_dates = [d for d, _ in all_days]
+    prev_date: dict[date, date | None] = {}
+    for i in range(len(sorted_dates)):
+        prev_date[sorted_dates[i]] = sorted_dates[i - 1] if i > 0 else None
+
     cum_shares = Decimal(0)
     cum_cost = Decimal(0)
     calc_rows: list[CalcDcaBacktest] = []
@@ -127,15 +226,25 @@ def _daily_calc(task_id, p, trading_days, invest_dates):
     cashflows: list[tuple[date, float]] = []
     invest_count = 0
 
-    for d, close in trading_days:
+    for d, close in all_days:
+        if d < p.start_date:
+            continue
         is_invest = d in invest_dates
         buy_shares = Decimal(0)
+        deduction_rate: Decimal | None = None
+        actual_amount = Decimal(0)
         if is_invest:
-            buy_shares = (p.amount / close).quantize(_Q8)
+            deduction_rate = (
+                _smart_rate(d, prev_date, close_by_date, ma_series)
+                if p.mode == "smart"
+                else Decimal("1.0000")
+            )
+            actual_amount = (p.amount * deduction_rate).quantize(_Q2)
+            buy_shares = (actual_amount / close).quantize(_Q8)
             cum_shares += buy_shares
-            cum_cost += p.amount
+            cum_cost += actual_amount
             invest_count += 1
-            cashflows.append((d, -float(p.amount)))
+            cashflows.append((d, -float(actual_amount)))
 
         market_value = (cum_shares * close).quantize(_Q2)
         pnl = (market_value - cum_cost).quantize(_Q2)
@@ -152,26 +261,25 @@ def _daily_calc(task_id, p, trading_days, invest_dates):
                 market_value=market_value,
                 pnl=pnl,
                 return_rate=return_rate,
+                deduction_rate=deduction_rate,
+                actual_amount=actual_amount if is_invest else None,
             )
         )
         market_values.append(float(market_value))
 
-    # 期末一次性"清仓"作为终值现金流入，用于 XIRR
-    if trading_days:
-        last_date = trading_days[-1][0]
+    if calc_rows:
+        last_date = calc_rows[-1].trade_date
         cashflows.append((last_date, market_values[-1]))
 
     return calc_rows, market_values, cashflows, invest_count
 
 
-def _build_summary(task_id, p, trading_days, market_values, cashflows, invest_count):
-    # 累计投入 = 所有现金流出（负值）取绝对值之和
+def _build_summary(task_id, p, dates, market_values, cashflows, invest_count):
     total_invested = -sum(cf[1] for cf in cashflows if cf[1] < 0)
     final_value = market_values[-1] if market_values else 0.0
     total_pnl = final_value - total_invested
     total_return_rate = (total_pnl / total_invested * 100) if total_invested > 0 else 0.0
 
-    dates = [d for d, _ in trading_days]
     annualized = _annualized(cashflows, total_return_rate, dates)
     max_drawdown = _max_drawdown(market_values)
 
@@ -201,8 +309,7 @@ def _write_results(db: Session, task_id: str, calc_rows: list[CalcDcaBacktest], 
     db.commit()
 
 
-def _annualized(cashflows: list[tuple[date, float]], total_return_rate: float, dates: list[date]) -> float:
-    """年化收益率：优先 XIRR（DCA 多笔现金流的正确口径），失败回退持有期近似。"""
+def _annualized(cashflows, total_return_rate, dates) -> float:
     x = _xirr(cashflows)
     if x is not None:
         return x * 100
@@ -214,8 +321,7 @@ def _annualized(cashflows: list[tuple[date, float]], total_return_rate: float, d
     return total_return_rate
 
 
-def _xirr(cashflows: list[tuple[date, float]], ) -> float | None:
-    """XIRR（年化内部收益率），二分法求解 NPV=0。"""
+def _xirr(cashflows) -> float | None:
     if not cashflows:
         return None
     cashflows = sorted(cashflows, key=lambda x: x[0])
@@ -233,7 +339,7 @@ def _xirr(cashflows: list[tuple[date, float]], ) -> float | None:
     lo, hi = -0.9999, 10.0
     flo, fhi = npv(lo), npv(hi)
     if flo == fhi or flo * fhi > 0:
-        return None  # 区间内无变号，放弃
+        return None
     for _ in range(200):
         mid = (lo + hi) / 2
         fm = npv(mid)
@@ -247,7 +353,6 @@ def _xirr(cashflows: list[tuple[date, float]], ) -> float | None:
 
 
 def _max_drawdown(series: list[float]) -> float:
-    """基于市值曲线的最大回撤（%）。"""
     if not series:
         return 0.0
     peak = series[0]

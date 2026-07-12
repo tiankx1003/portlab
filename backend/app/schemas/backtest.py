@@ -3,7 +3,9 @@
 from datetime import date
 from decimal import Decimal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from ..utils.symbol import strip_market_prefix
 
 
 class BacktestRequest(BaseModel):
@@ -13,6 +15,16 @@ class BacktestRequest(BaseModel):
     start_date: date
     end_date: date
     invest_day: int = Field(..., description="weekly:0-6(周一~周日); monthly:1-28")
+    mode: str = Field("normal", pattern="^(normal|smart)$", description="普通定投/智能定投")
+    ma_period: int = Field(250, ge=2, le=1000, description="智能定投均线周期")
+
+    @field_validator("symbol")
+    @classmethod
+    def _normalize_symbol(cls, v: str) -> str:
+        v = strip_market_prefix(v)
+        if not v:
+            raise ValueError("标的代码不能为空")
+        return v
 
     @model_validator(mode="after")
     def _validate(self) -> "BacktestRequest":
@@ -36,6 +48,11 @@ class ChartData(BaseModel):
     pnl: list[float]
     return_rate: list[float]
     invest_days: list[bool]
+    deduction_rates: list[float | None]  # 每个交易日的扣款率（非定投日为 null）
+    actual_amounts: list[float | None]  # 每个交易日的实际投入（非定投日为 null）
+    benchmark_returns: list[float | None] = []  # 沪深300 累计收益率参考（无数据时为 null）
+    benchmark_name: str = ""  # 基准名称，如 "沪深300"
+    symbol_name: str = ""
 
 
 class SummaryData(BaseModel):
@@ -46,6 +63,7 @@ class SummaryData(BaseModel):
     annualized_return: float
     max_drawdown: float
     invest_count: int
+    symbol_name: str = ""
 
 
 class SymbolItem(BaseModel):

@@ -37,6 +37,8 @@ export interface BacktestParams {
   start_date: string
   end_date: string
   invest_day: number
+  mode: 'normal' | 'smart'
+  ma_period: number
 }
 
 export interface ChartData {
@@ -46,6 +48,11 @@ export interface ChartData {
   pnl: number[]
   return_rate: number[]
   invest_days: boolean[]
+  deduction_rates: (number | null)[]
+  actual_amounts: (number | null)[]
+  benchmark_returns: (number | null)[]
+  benchmark_name: string
+  symbol_name: string
 }
 
 export interface SummaryData {
@@ -56,6 +63,7 @@ export interface SummaryData {
   annualized_return: number
   max_drawdown: number
   invest_count: number
+  symbol_name: string
 }
 
 export async function createBacktest(p: BacktestParams): Promise<ApiResponse<{ task_id: string }>> {

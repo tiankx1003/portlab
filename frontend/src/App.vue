@@ -1,15 +1,25 @@
 <script setup lang="ts">
-// 顶层布局：导航 + <RouterView />
+import { theme, toggleTheme } from './composables/useTheme'
 </script>
 
 <template>
   <div class="layout">
     <header class="nav">
       <div class="brand">📈 PortLab</div>
-      <nav>
+      <nav class="nav-links">
         <RouterLink to="/">首页</RouterLink>
         <RouterLink to="/backtest">定投回测</RouterLink>
       </nav>
+      <button
+        class="theme-switch"
+        :class="{ dark: theme === 'dark' }"
+        role="switch"
+        :aria-checked="theme === 'dark'"
+        :title="theme === 'dark' ? '切换到日间模式' : '切换到夜间模式'"
+        @click="toggleTheme"
+      >
+        <span class="thumb">{{ theme === 'dark' ? '🌙' : '☀️' }}</span>
+      </button>
     </header>
     <main class="content">
       <RouterView />
@@ -18,36 +28,141 @@
 </template>
 
 <style>
+/* ---------- 主题变量 ---------- */
+:root,
+[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f7f8fa;
+  --surface: #ffffff;
+  --input-bg: #ffffff;
+  --border: #e5e6eb;
+  --border-light: #eeeeee;
+  --text: #1f2329;
+  --text-secondary: #4e5969;
+  --text-tertiary: #8a8f99;
+  --hint: #86909c;
+  --primary: #1f6feb;
+  --primary-disabled: #9aa4b2;
+  --input-border: #d9d9d9;
+  --hover-bg: #f2f3f5;
+  --error-bg: #fff2f0;
+  --error-border: #ffccc7;
+  --error-text: #d4380d;
+  --shadow: rgba(0, 0, 0, 0.04);
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #16161a;
+  --surface: #232328;
+  --input-bg: #1c1c20;
+  --border: #34343a;
+  --border-light: #2e2e34;
+  --text: #e8e8ec;
+  --text-secondary: #b8b8be;
+  --text-tertiary: #88888f;
+  --hint: #88888f;
+  --primary: #4080ff;
+  --primary-disabled: #55555c;
+  --input-border: #3e3e44;
+  --hover-bg: #2c2c32;
+  --error-bg: #2a1d1d;
+  --error-border: #4a2828;
+  --error-text: #ff8787;
+  --shadow: rgba(0, 0, 0, 0.3);
+}
+
 body {
   margin: 0;
   font-family: system-ui, -apple-system, 'PingFang SC', sans-serif;
-  color: #1f2329;
+  color: var(--text);
+  background: var(--bg);
+  transition: background 0.2s, color 0.2s;
 }
 .layout {
   min-height: 100vh;
 }
 .nav {
   display: flex;
-  align-items: center;
-  gap: 24px;
-  padding: 12px 24px;
-  border-bottom: 1px solid #eee;
-  background: #fff;
+  align-items: stretch;
+  height: 56px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
 }
 .brand {
+  display: flex;
+  align-items: center;
   font-weight: 700;
   font-size: 18px;
+  padding-right: 24px;
+  margin-right: 8px;
+  border-right: 1px solid var(--border);
+}
+.nav-links {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+.nav-links a {
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 14px;
+  border-bottom: 2px solid transparent;
+  transition: background 0.2s, color 0.2s;
+}
+.nav-links a:hover {
+  background: var(--hover-bg);
+  color: var(--text);
+}
+.nav-links a.router-link-active {
+  color: var(--primary);
+  font-weight: 600;
+  border-bottom-color: var(--primary);
 }
 .content {
-  padding: 24px;
-  max-width: 1200px;
+  padding: 24px 32px;
+  max-width: 1600px;
   margin: 0 auto;
 }
-a {
-  color: #1f6feb;
-  text-decoration: none;
+
+/* ---------- 主题开关 ---------- */
+.theme-switch {
+  margin-left: auto;
+  align-self: center;
+  width: 46px;
+  height: 24px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: #1f1f23; /* 日间：深色轨道，在浅色导航上清晰可见 */
+  position: relative;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.2s;
 }
-a.router-link-active {
-  font-weight: 600;
+.theme-switch .thumb {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  line-height: 1;
+  transition: transform 0.2s;
+}
+.theme-switch.dark {
+  background: #ffffff; /* 夜间：白色轨道，在深色导航上清晰可见 */
+}
+.theme-switch.dark .thumb {
+  transform: translateX(22px);
 }
 </style>

@@ -30,20 +30,21 @@ onMounted(async () => {
 
 <style scoped>
 .muted {
-  color: #8a8f99;
+  color: var(--text-tertiary);
 }
 .card {
-  border: 1px solid #eee;
+  border: 1px solid var(--border-light);
   border-radius: 8px;
   padding: 16px 20px;
   max-width: 420px;
   margin-top: 16px;
+  background: var(--surface);
 }
 .ok {
   color: #00a870;
   font-weight: 600;
 }
 .err {
-  color: #d4380d;
+  color: var(--error-text);
 }
 </style>
