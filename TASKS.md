@@ -4,7 +4,7 @@
 
 | # | 任务 | 状态 |
 |---|------|------|
-| 001 | [项目基础设施搭建](docs/tasks/001-project-infrastructure.md) | ☐ |
-| 002 | [数据拉取模块](docs/tasks/002-data-fetcher.md) | ☐ |
-| 003 | [定投回测：计算引擎、API 与前端](docs/tasks/003-dca-compute-engine.md) | ☐ |
-| 004 | [联调、收尾与文档](docs/tasks/004-integration-and-release.md) | ☐ |
+| 001 | [项目基础设施搭建](docs/tasks/001-project-infrastructure.md) | ☑ |
+| 002 | [数据拉取模块](docs/tasks/002-data-fetcher.md) | ☑ |
+| 003 | [定投回测：计算引擎、API 与前端](docs/tasks/003-dca-compute-engine.md) | ☑ |
+| 004 | [联调、收尾与文档](docs/tasks/004-integration-and-release.md) | ☑ |
