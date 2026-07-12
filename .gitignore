@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# uv
+.uv-cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log
+
+# Test & coverage
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Data exports
+exports/
+
+# Runtime data / 依赖（容器生成，不入库）
+mysql/data/
+backend/.venv/
+frontend/node_modules/
+frontend/dist/
