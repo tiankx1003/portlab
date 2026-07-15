@@ -160,4 +160,31 @@ export async function getMa120Summary(
   return res.data
 }
 
+// ---- feedback ----
+export interface FeedbackItem {
+  id: number
+  content: string
+  nickname: string | null
+  created_at: string
+  expires_at: string
+}
+
+export async function listFeedback(): Promise<ApiResponse<FeedbackItem[]>> {
+  const res = await http.get<ApiResponse<FeedbackItem[]>>('/feedback')
+  return res.data
+}
+
+export async function submitFeedback(body: {
+  content: string
+  nickname?: string | null
+}): Promise<ApiResponse<{ id: number }>> {
+  const res = await http.post<ApiResponse<{ id: number }>>('/feedback', body)
+  return res.data
+}
+
+export async function deleteFeedback(id: number): Promise<ApiResponse<null>> {
+  const res = await http.delete<ApiResponse<null>>(`/feedback/${id}`)
+  return res.data
+}
+
 export default http

@@ -7,7 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from .api import backtest, data, health, ma120, symbols
+from .api import backtest, data, feedback, health, ma120, symbols
 from .schemas.common import ApiResponse
 from .services import symbol_catalog
 
@@ -40,6 +40,7 @@ app.include_router(data.router, prefix="/api/data", tags=["data"])
 app.include_router(backtest.router, prefix="/api/backtest", tags=["backtest"])
 app.include_router(ma120.router, prefix="/api/backtest", tags=["backtest"])
 app.include_router(symbols.router, prefix="/api/symbols", tags=["symbols"])
+app.include_router(feedback.router, prefix="/api/feedback", tags=["feedback"])
 
 # 启动时后台预热 A 股标的目录，使名称解析（图表标题）稳定可用
 threading.Thread(target=symbol_catalog.warmup, daemon=True).start()

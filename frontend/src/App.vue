@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { theme, toggleTheme } from './composables/useTheme'
+import FeedbackWidget from './components/FeedbackWidget.vue'
 </script>
 
 <template>
@@ -19,16 +20,19 @@ import { theme, toggleTheme } from './composables/useTheme'
         <RouterLink to="/backtest">定投回测</RouterLink>
         <RouterLink to="/ma120">MA120 策略</RouterLink>
       </nav>
-      <button
-        class="theme-switch"
-        :class="{ dark: theme === 'dark' }"
-        role="switch"
-        :aria-checked="theme === 'dark'"
-        :title="theme === 'dark' ? '切换到日间模式' : '切换到夜间模式'"
-        @click="toggleTheme"
-      >
-        <span class="thumb">{{ theme === 'dark' ? '🌙' : '☀️' }}</span>
-      </button>
+      <div class="nav-actions">
+        <FeedbackWidget />
+        <button
+          class="theme-switch"
+          :class="{ dark: theme === 'dark' }"
+          role="switch"
+          :aria-checked="theme === 'dark'"
+          :title="theme === 'dark' ? '切换到日间模式' : '切换到夜间模式'"
+          @click="toggleTheme"
+        >
+          <span class="thumb">{{ theme === 'dark' ? '🌙' : '☀️' }}</span>
+        </button>
+      </div>
     </header>
     <main class="content">
       <RouterView />
@@ -138,6 +142,12 @@ body {
   font-weight: 600;
   border-bottom-color: var(--primary);
 }
+.nav-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 .content {
   padding: 24px 32px;
   max-width: 1600px;
@@ -146,7 +156,6 @@ body {
 
 /* ---------- 主题开关 ---------- */
 .theme-switch {
-  margin-left: auto;
   align-self: center;
   width: 46px;
   height: 24px;
