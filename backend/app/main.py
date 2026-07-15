@@ -7,7 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from .api import backtest, data, health, symbols
+from .api import backtest, data, health, ma120, symbols
 from .schemas.common import ApiResponse
 from .services import symbol_catalog
 
@@ -38,6 +38,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(data.router, prefix="/api/data", tags=["data"])
 app.include_router(backtest.router, prefix="/api/backtest", tags=["backtest"])
+app.include_router(ma120.router, prefix="/api/backtest", tags=["backtest"])
 app.include_router(symbols.router, prefix="/api/symbols", tags=["symbols"])
 
 # 启动时后台预热 A 股标的目录，使名称解析（图表标题）稳定可用

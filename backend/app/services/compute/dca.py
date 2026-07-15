@@ -13,12 +13,12 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from ...models.calc import CalcDcaBacktest
-from ...models.raw import RawPriceDaily
 from ...models.result import ResultDcaSummary
+from .common import annualized_return, compute_ma, load_prices, max_drawdown
 
 _Q8 = Decimal("0.00000001")  # 份额 8 位
 _Q4 = Decimal("0.0001")  # 百分比/扣款率 4 位
@@ -59,13 +59,13 @@ def run_backtest(db: Session, p: DcaParams) -> str:
     task_id = make_task_id(p)
     load_start = p.start_date - timedelta(days=lookback_days(p.mode, p.ma_period))
 
-    all_days = _load_prices(db, p.symbol, load_start, p.end_date)
+    all_days = load_prices(db, p.symbol, load_start, p.end_date)
     if not any(d >= p.start_date for d, _ in all_days):
         raise ComputeError(
             f"标的 {p.symbol} 在 {p.start_date}~{p.end_date} 无行情数据，请先拉取数据"
         )
 
-    ma_series = _compute_ma(all_days, p.ma_period) if p.mode == "smart" else {}
+    ma_series = compute_ma(all_days, p.ma_period) if p.mode == "smart" else {}
     invest_dates = _gen_invest_dates(p, [(d, c) for d, c in all_days if d >= p.start_date])
 
     calc_rows, market_values, cashflows, invest_count = _daily_calc(
@@ -124,23 +124,6 @@ def _deduction_rate(deviation_pct: float) -> Decimal:
     return Decimal(str(r)).quantize(_Q4)
 
 
-def _compute_ma(days: list[tuple[date, Decimal]], period: int) -> dict[date, Decimal]:
-    """滚动简单均线（前缀和），仅对历史 ≥ period 的日期给出值。"""
-    dates = [d for d, _ in days]
-    closes = [c for _, c in days]
-    n = len(closes)
-    prefix: list[Decimal] = [Decimal(0)]
-    for c in closes:
-        prefix.append(prefix[-1] + c)
-    ma: dict[date, Decimal] = {}
-    big_period = Decimal(period)
-    for i in range(n):
-        if i >= period - 1:
-            window_sum = prefix[i + 1] - prefix[i + 1 - period]
-            ma[dates[i]] = (window_sum / big_period).quantize(_Q4)
-    return ma
-
-
 def _smart_rate(
     d: date,
     prev_date: dict[date, date | None],
@@ -160,19 +143,6 @@ def _smart_rate(
 
 
 # --------------------------- 内部实现 ---------------------------
-
-
-def _load_prices(db: Session, symbol: str, start: date, end: date) -> list[tuple[date, Decimal]]:
-    rows = db.execute(
-        select(RawPriceDaily.trade_date, RawPriceDaily.close)
-        .where(
-            RawPriceDaily.symbol == symbol,
-            RawPriceDaily.trade_date >= start,
-            RawPriceDaily.trade_date <= end,
-        )
-        .order_by(RawPriceDaily.trade_date)
-    ).all()
-    return [(r.trade_date, Decimal(str(r.close))) for r in rows]
 
 
 def _gen_invest_dates(p: DcaParams, trading_days: list[tuple[date, Decimal]]) -> set[date]:
@@ -280,8 +250,8 @@ def _build_summary(task_id, p, dates, market_values, cashflows, invest_count):
     total_pnl = final_value - total_invested
     total_return_rate = (total_pnl / total_invested * 100) if total_invested > 0 else 0.0
 
-    annualized = _annualized(cashflows, total_return_rate, dates)
-    max_drawdown = _max_drawdown(market_values)
+    annualized = annualized_return(cashflows, total_return_rate, dates)
+    mdd_val = max_drawdown(market_values)
 
     return ResultDcaSummary(
         task_id=task_id,
@@ -296,72 +266,16 @@ def _build_summary(task_id, p, dates, market_values, cashflows, invest_count):
         total_pnl=Decimal(str(total_pnl)).quantize(_Q2),
         total_return_rate=Decimal(str(round(total_return_rate, 4))),
         annualized_return=Decimal(str(round(annualized, 4))),
-        max_drawdown=Decimal(str(round(max_drawdown, 4))),
+        max_drawdown=Decimal(str(round(mdd_val, 4))),
         invest_count=invest_count,
     )
 
 
-def _write_results(db: Session, task_id: str, calc_rows: list[CalcDcaBacktest], summary: ResultDcaSummary):
+def _write_results(
+    db: Session, task_id: str, calc_rows: list[CalcDcaBacktest], summary: ResultDcaSummary
+):
     db.execute(delete(CalcDcaBacktest).where(CalcDcaBacktest.task_id == task_id))
     db.execute(delete(ResultDcaSummary).where(ResultDcaSummary.task_id == task_id))
     db.add_all(calc_rows)
     db.add(summary)
     db.commit()
-
-
-def _annualized(cashflows, total_return_rate, dates) -> float:
-    x = _xirr(cashflows)
-    if x is not None:
-        return x * 100
-    if len(dates) >= 2:
-        yrs = (dates[-1] - dates[0]).days / 365.0
-        base = 1 + total_return_rate / 100
-        if yrs > 0 and base > 0:
-            return (base ** (1 / yrs) - 1) * 100
-    return total_return_rate
-
-
-def _xirr(cashflows) -> float | None:
-    if not cashflows:
-        return None
-    cashflows = sorted(cashflows, key=lambda x: x[0])
-    t0 = cashflows[0][0]
-
-    def npv(rate: float) -> float:
-        if rate <= -1:
-            return float("inf")
-        total = 0.0
-        for d, amt in cashflows:
-            yrs = (d - t0).days / 365.0
-            total += amt / ((1 + rate) ** yrs)
-        return total
-
-    lo, hi = -0.9999, 10.0
-    flo, fhi = npv(lo), npv(hi)
-    if flo == fhi or flo * fhi > 0:
-        return None
-    for _ in range(200):
-        mid = (lo + hi) / 2
-        fm = npv(mid)
-        if abs(fm) < 1e-7 or (hi - lo) < 1e-10:
-            return mid
-        if flo * fm <= 0:
-            hi, fhi = mid, fm
-        else:
-            lo, flo = mid, fm
-    return (lo + hi) / 2
-
-
-def _max_drawdown(series: list[float]) -> float:
-    if not series:
-        return 0.0
-    peak = series[0]
-    mdd = 0.0
-    for v in series:
-        if v > peak:
-            peak = v
-        if peak > 0:
-            dd = (peak - v) / peak
-            if dd > mdd:
-                mdd = dd
-    return mdd * 100

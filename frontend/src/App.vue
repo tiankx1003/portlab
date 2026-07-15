@@ -17,6 +17,7 @@ import { theme, toggleTheme } from './composables/useTheme'
       <nav class="nav-links">
         <RouterLink to="/">首页</RouterLink>
         <RouterLink to="/backtest">定投回测</RouterLink>
+        <RouterLink to="/ma120">MA120 策略</RouterLink>
       </nav>
       <button
         class="theme-switch"

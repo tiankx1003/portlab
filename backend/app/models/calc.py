@@ -25,3 +25,23 @@ class CalcDcaBacktest(Base):
     # 智能定投相关（普通模式：invest 日为 1.0000 / 设定金额，非 invest 日为 NULL）
     deduction_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 4), nullable=True)
     actual_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(16, 2), nullable=True)
+
+
+class CalcMa120Backtest(Base):
+    """MA120 策略回测逐日计算结果。"""
+
+    __tablename__ = "calc_ma120_backtest"
+
+    task_id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    signal: Mapped[str] = mapped_column(String(8), nullable=False, default="hold")
+    action_shares: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False, default=0)
+    action_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=0)
+    holding_shares: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
+    cash_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    cum_invested: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    market_value: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    pnl: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    return_rate: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
+    ma_value: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 4), nullable=True)
+    price_vs_ma: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4), nullable=True)

@@ -10,3 +10,4 @@
 | 004 | [联调、收尾与文档](docs/tasks/004-integration-and-release.md) | ☑ |
 | 005 | [UI 优化与标的信息增强](docs/tasks/005-ui-and-symbol-enhancement.md) | ☑ |
 | 006 | [智能定投（均线定投策略）](docs/tasks/006-smart-dca.md) | ☑ |
+| 007 | [红利 MA120 策略回测](docs/tasks/007-ma120-strategy-backtest.md) | ☐ |

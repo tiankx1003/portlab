@@ -81,4 +81,83 @@ export async function getSummary(taskId: string): Promise<ApiResponse<SummaryDat
   return res.data
 }
 
+// ---- ma120 backtest ----
+export type CapitalMode = 'fixed' | 'recurring' | 'hybrid'
+export type SellMode = 'batch' | 'all' | 'half'
+export type DividendMode = 'cash' | 'reinvest'
+
+export interface Ma120Params {
+  symbol: string
+  start_date: string
+  end_date: string
+  capital_mode: CapitalMode
+  principal?: number | null
+  monthly_amount?: number | null
+  splits: number
+  ma_period: number
+  buy_threshold: number
+  step: number
+  crash_threshold: number
+  crash_multiplier: number
+  sell_mode: SellMode
+  dividend_mode: DividendMode
+}
+
+export interface Ma120Point {
+  date: string
+  price: number
+  amount: number
+}
+
+export interface Ma120ChartData {
+  dates: string[]
+  market_value: number[]
+  total_cost: number[]
+  pnl: number[]
+  return_rate: number[]
+  ma_values: (number | null)[]
+  close_prices: (number | null)[]
+  holding_shares: number[]
+  price_vs_ma: (number | null)[]
+  signals: string[]
+  buy_points: Ma120Point[]
+  sell_points: Ma120Point[]
+  benchmark_returns: (number | null)[]
+  benchmark_name: string
+  symbol_name: string
+}
+
+export interface Ma120SummaryData {
+  total_invested: number
+  final_value: number
+  total_pnl: number
+  total_return_rate: number
+  annualized_return: number
+  max_drawdown: number
+  buy_count: number
+  sell_count: number
+  dividend_total: number
+  win_rate: number
+  symbol_name: string
+}
+
+export async function createMa120(
+  p: Ma120Params,
+): Promise<ApiResponse<{ task_id: string }>> {
+  const res = await http.post<ApiResponse<{ task_id: string }>>('/backtest/ma120', p)
+  return res.data
+}
+
+export async function getMa120Chart(taskId: string): Promise<ApiResponse<Ma120ChartData>> {
+  const res = await http.get<ApiResponse<Ma120ChartData>>(`/backtest/ma120/${taskId}/chart`)
+  return res.data
+}
+
+export async function getMa120Summary(
+  taskId: string,
+): Promise<ApiResponse<Ma120SummaryData>> {
+  const res = await http.get<ApiResponse<Ma120SummaryData>>(`/backtest/ma120/${taskId}/summary`)
+  return res.data
+}
+
 export default http
