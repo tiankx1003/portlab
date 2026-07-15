@@ -220,11 +220,11 @@ function pnlColor(n: number | undefined): string {
         </label>
         <label>
           份数
-          <input v-model.number="splits" type="number" min="1" step="1" />
+          <input v-model.number="splits" type="number" min="1" step="1" class="narrow" />
         </label>
         <label>
           MA 周期
-          <input v-model.number="maPeriod" type="number" min="2" max="1000" step="1" />
+          <input v-model.number="maPeriod" type="number" min="2" max="1000" step="1" class="narrow" />
         </label>
         <label>
           卖出方式
@@ -241,6 +241,9 @@ function pnlColor(n: number | undefined): string {
             <option value="reinvest" disabled>复投（待实现）</option>
           </select>
         </label>
+        <button :disabled="loading" class="primary" @click="runBacktest">
+          {{ loading ? '回测中…' : '开始回测' }}
+        </button>
       </div>
 
       <!-- 高级参数（可折叠） -->
@@ -268,11 +271,6 @@ function pnlColor(n: number | undefined): string {
         </div>
       </div>
 
-      <div class="form-row">
-        <button :disabled="loading" class="primary" @click="runBacktest">
-          {{ loading ? '回测中…' : '开始回测' }}
-        </button>
-      </div>
     </div>
 
     <p v-if="errorMsg" class="err">{{ errorMsg }}</p>
@@ -293,10 +291,16 @@ function pnlColor(n: number | undefined): string {
         :color="pnlColor(summary.annualized_return)"
       />
       <MetricCard label="最大回撤" :value="fmt(summary.max_drawdown) + '%'" :color="COLOR_DOWN" />
-      <MetricCard label="买入次数" :value="String(summary.buy_count)" />
-      <MetricCard label="卖出次数" :value="String(summary.sell_count)" />
+      <div class="trade-card">
+        <div class="tc-label">买卖次数，胜率</div>
+        <div class="trade-value">
+          <span class="num-buy">{{ summary.buy_count }}</span>
+          <span class="sep">/</span>
+          <span class="num-sell">{{ summary.sell_count }}</span>
+          <span class="win-rate">{{ fmt(summary.win_rate) }}%</span>
+        </div>
+      </div>
       <MetricCard label="分红累计" :value="fmt(summary.dividend_total)" />
-      <MetricCard label="胜率" :value="fmt(summary.win_rate) + '%'" />
     </div>
 
     <!-- 图表 -->
@@ -350,6 +354,10 @@ select {
   background: var(--input-bg);
   color: var(--text);
 }
+input.narrow {
+  min-width: 88px;
+  max-width: 100px;
+}
 .symbol-field input {
   min-width: 160px;
 }
@@ -397,6 +405,47 @@ button.primary:disabled {
   flex-wrap: wrap;
   gap: 12px;
   margin: 16px 0;
+}
+.trade-card {
+  flex: 1 1 0;
+  min-width: 150px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: var(--surface);
+}
+.tc-label {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.trade-value {
+  margin-top: 4px;
+  display: flex;
+  align-items: flex-end; /* 下边缘对齐 */
+  gap: 6px;
+  line-height: 1.2;
+}
+.num-buy,
+.num-sell,
+.sep {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+}
+.num-buy {
+  color: #ee6666; /* 买入红，与图表买入标记一致 */
+}
+.num-sell {
+  color: #3a7afe; /* 卖出蓝，与图表卖出标记一致 */
+}
+.sep {
+  color: var(--text-tertiary);
+}
+.win-rate {
+  font-size: 14px; /* 比买卖次数小一号 */
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-left: 4px;
 }
 .chart-card {
   border: 1px solid var(--border-light);

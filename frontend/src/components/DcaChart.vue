@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
+import LegendHint from './LegendHint.vue'
 import type { ChartData } from '../api'
 import { theme } from '../composables/useTheme'
 
@@ -165,12 +166,20 @@ watch(theme, render)
 </script>
 
 <template>
-  <div ref="el" class="chart"></div>
+  <div class="chart-wrap">
+    <div ref="el" class="chart"></div>
+    <LegendHint />
+  </div>
 </template>
 
 <style scoped>
-.chart {
+.chart-wrap {
+  position: relative;
   width: 100%;
   height: 480px;
+}
+.chart {
+  width: 100%;
+  height: 100%;
 }
 </style>
