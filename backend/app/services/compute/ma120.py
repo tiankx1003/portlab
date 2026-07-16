@@ -36,9 +36,6 @@ _Q8 = Decimal("0.00000001")  # 份额 8 位
 _Q4 = Decimal("0.0001")  # 百分比 / 偏离度 4 位
 _Q2 = Decimal("0.01")  # 金额 2 位
 
-# batch 卖出模式每涨此幅度卖出 1/splits 仓位（"站回 MA 上方后，每涨一定幅度卖出一批"）
-BATCH_SELL_STEP = Decimal("0.02")
-
 
 class ComputeError(Exception):
     """回测计算业务异常。"""
@@ -59,6 +56,7 @@ class Ma120Params:
     crash_threshold: Decimal = Decimal("0.05")
     crash_multiplier: int = 2
     sell_mode: str = "batch"  # batch/all/half
+    batch_sell_step: Decimal = Decimal("0.02")  # batch: 站回 MA 后再涨此步长触发卖出
     dividend_mode: str = "cash"  # cash（reinvest 暂未实现）
 
 
@@ -74,7 +72,7 @@ def make_task_id(p: Ma120Params) -> str:
         f"ma120_{p.symbol}_{p.start_date:%Y%m%d}_{p.end_date:%Y%m%d}"
         f"_{p.capital_mode}_{principal}_{monthly}_{p.splits}"
         f"_{p.ma_period}_{p.buy_threshold}_{p.step}_{p.sell_mode}"
-        f"_{p.crash_threshold}_{p.crash_multiplier}_{p.dividend_mode}"
+        f"_{p.crash_threshold}_{p.crash_multiplier}_{p.dividend_mode}_{p.batch_sell_step}"
     )
 
 
@@ -93,6 +91,8 @@ def run_backtest(db: Session, p: Ma120Params) -> str:
         raise ComputeError(f"不支持的卖出方式: {p.sell_mode}")
     if p.splits < 1:
         raise ComputeError("份数 splits 必须 ≥ 1")
+    if not (Decimal(0) < p.batch_sell_step < Decimal(1)):
+        raise ComputeError("止盈步长 batch_sell_step 必须 > 0 且 < 1")
 
     task_id = make_task_id(p)
     load_start = p.start_date - timedelta(days=lookback_days(p.ma_period))
@@ -126,7 +126,7 @@ def _unit_amount(p: Ma120Params) -> Decimal:
 def _daily_calc(task_id, p, all_days, ma_series):
     unit_amount = _unit_amount(p)
     step_down = Decimal(1) - p.step
-    batch_up = Decimal(1) + BATCH_SELL_STEP
+    batch_up = Decimal(1) + p.batch_sell_step
 
     holding = Decimal(0)
     deployed_cost = Decimal(0)  # 当前持仓的成本基础
@@ -231,7 +231,7 @@ def _daily_calc(task_id, p, all_days, ma_series):
                             last_sell_price is not None
                             and close >= last_sell_price * batch_up
                         ):
-                            # 每涨 BATCH_SELL_STEP 卖 1/splits 仓位
+                            # 每涨 batch_sell_step 卖 1/splits 仓位
                             sell_shares = min(holding, cycle_start_holding / Decimal(p.splits))
                             last_sell_price = close
 

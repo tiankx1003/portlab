@@ -22,6 +22,7 @@ class Ma120Request(BaseModel):
     crash_threshold: Decimal = Field(Decimal("0.05"), gt=0, lt=1, description="暴跌阈值")
     crash_multiplier: int = Field(2, ge=1, le=10, description="暴跌加倍倍数")
     sell_mode: str = Field("batch", pattern="^(batch|all|half)$")
+    batch_sell_step: Decimal = Field(Decimal("0.02"), gt=0, lt=1, description="止盈步长")
     dividend_mode: str = Field("cash", pattern="^(cash|reinvest)$")
 
     @field_validator("symbol")

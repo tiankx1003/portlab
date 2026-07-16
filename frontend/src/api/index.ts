@@ -100,6 +100,7 @@ export interface Ma120Params {
   crash_threshold: number
   crash_multiplier: number
   sell_mode: SellMode
+  batch_sell_step: number
   dividend_mode: DividendMode
 }
 

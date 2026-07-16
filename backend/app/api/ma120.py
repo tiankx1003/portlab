@@ -56,6 +56,7 @@ def create_ma120_backtest(req: Ma120Request, db: Session = Depends(get_db)) -> A
         crash_threshold=req.crash_threshold,
         crash_multiplier=req.crash_multiplier,
         sell_mode=req.sell_mode,
+        batch_sell_step=req.batch_sell_step,
         dividend_mode=req.dividend_mode,
     )
     task_id = make_task_id(params)

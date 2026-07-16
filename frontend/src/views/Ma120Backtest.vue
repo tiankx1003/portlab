@@ -32,6 +32,7 @@ const step = ref(0.01)
 const crashThreshold = ref(0.05)
 const crashMultiplier = ref(2)
 const sellMode = ref<SellMode>('batch')
+const batchSellStep = ref(0.02)
 const dividendMode = ref<DividendMode>('cash')
 const showAdvanced = ref(false)
 
@@ -128,6 +129,7 @@ async function runBacktest() {
       crash_threshold: crashThreshold.value,
       crash_multiplier: crashMultiplier.value,
       sell_mode: sellMode.value,
+      batch_sell_step: batchSellStep.value,
       dividend_mode: dividendMode.value,
     })
     if (r.code !== 0) {
@@ -267,6 +269,10 @@ function pnlColor(n: number | undefined): string {
           <label>
             暴跌加倍倍数
             <input v-model.number="crashMultiplier" type="number" min="1" max="10" step="1" />
+          </label>
+          <label>
+            止盈步长
+            <input v-model.number="batchSellStep" type="number" min="0.005" max="0.2" step="0.005" />
           </label>
         </div>
       </div>
