@@ -136,8 +136,8 @@ def _daily_calc(task_id, p, all_days, ma_series):
     last_buy_price: Decimal | None = None  # 本轮最近一次买入价；为 None 表示待首次买入
     prev_above_ma = False
     # batch 卖出状态
-    cycle_start_holding = Decimal(0)
     last_sell_price: Decimal | None = None
+    batch_sells_done = 0  # 本轮已分批卖出次数（reset on 站回 MA）
 
     buy_count = 0
     sell_count = 0
@@ -225,15 +225,19 @@ def _daily_calc(task_id, p, all_days, ma_series):
                             sell_shares = holding * Decimal("0.5")  # 卖半留底仓
                     else:  # batch
                         if just_crossed_up:
-                            cycle_start_holding = holding
                             last_sell_price = close
+                            batch_sells_done = 0
                         if (
                             last_sell_price is not None
                             and close >= last_sell_price * batch_up
+                            and batch_sells_done < p.splits
                         ):
-                            # 每涨 batch_sell_step 卖 1/splits 仓位
-                            sell_shares = min(holding, cycle_start_holding / Decimal(p.splits))
+                            # 分 splits 次清仓：每次卖 1/剩余次数，最后一次（剩余 1）清光
+                            # 等价于 cycle_start/splits 的 N 等份，但「最后一次=全部」杜绝尾数
+                            remaining_steps = p.splits - batch_sells_done
+                            sell_shares = holding / Decimal(remaining_steps)
                             last_sell_price = close
+                            batch_sells_done += 1
 
                     if sell_shares > 0:
                         sell_shares = min(sell_shares, holding)
