@@ -135,9 +135,20 @@ function buildOption(d: Ma120ChartData): echarts.EChartsOption {
         const rateColor = rate >= 0 ? COLOR_UP : COLOR_DOWN
         const sigColor = sig === 'buy' ? COLOR_BUY : sig === 'sell' ? COLOR_SELL : tc.axisLabel
         const f2 = (v: number | null | undefined) => (v == null ? '-' : v.toFixed(2))
+        const pt =
+          sig === 'buy'
+            ? d.buy_points.find((p) => p.date === d.dates[i])
+            : sig === 'sell'
+              ? d.sell_points.find((p) => p.date === d.dates[i])
+              : undefined
+        const amt = pt ? pt.amount : null
+        const amtLabel = sig === 'buy' ? '买入金额' : sig === 'sell' ? '卖出金额' : ''
         return (
           `${d.dates[i]}` +
           (sig !== 'hold' ? `　<span style="color:${sigColor};font-weight:600">📌 ${SIGNAL_LABEL[sig]}</span>` : '') +
+          (amt != null
+            ? `<br/>${amtLabel}：<span style="color:${sigColor};font-weight:600">${amt.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>`
+            : '') +
           `<br/>价格：${f2(close)}` +
           `<br/>MA120：<span style="color:${COLOR_MA}">${f2(ma)}</span>` +
           `　偏离：<span style="color:${dev != null && dev >= 0 ? COLOR_UP : COLOR_DOWN}">${dev == null ? '-' : dev.toFixed(2)}%</span>` +
