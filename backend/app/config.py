@@ -16,5 +16,8 @@ class Settings(BaseSettings):
     # 数据拉取数据源
     data_source: str = "akshare"
 
+    # Tushare Pro Token（环境变量兜底；优先级低于数据库 data_source_config.tushare_token）
+    tushare_token: str = ""
+
 
 settings = Settings()

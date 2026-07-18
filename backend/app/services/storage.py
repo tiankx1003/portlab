@@ -7,8 +7,11 @@ from ..models.raw import RawPriceDaily
 from .fetcher import PriceBar
 
 
-def upsert_bars(db: Session, bars: list[PriceBar]) -> int:
-    """将行情写入 raw_price_daily，主键冲突时更新。返回写入条数。"""
+def upsert_bars(db: Session, bars: list[PriceBar], model=RawPriceDaily) -> int:
+    """将行情写入目标表（默认 ``raw_price_daily``，Tushare 源传 ``RawPriceDailyTushare``）。
+
+    主键 ``(symbol, trade_date)`` 冲突时更新，保证重复拉取幂等。返回写入条数。
+    """
     if not bars:
         return 0
     rows = [
@@ -23,7 +26,7 @@ def upsert_bars(db: Session, bars: list[PriceBar]) -> int:
         }
         for b in bars
     ]
-    stmt = mysql_insert(RawPriceDaily).values(rows)
+    stmt = mysql_insert(model).values(rows)
     stmt = stmt.on_duplicate_key_update(
         open=stmt.inserted.open,
         close=stmt.inserted.close,

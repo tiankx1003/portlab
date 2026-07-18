@@ -39,14 +39,20 @@ class DcaParams:
     invest_day: int  # weekly: 0-6; monthly: 1-28
     mode: str = "normal"  # 'normal' | 'smart'
     ma_period: int = 250
+    source: str = "akshare"  # 数据源：非 akshare 时 task_id 追加后缀，使两源结果互不覆盖
 
 
 def make_task_id(p: DcaParams) -> str:
-    """由全部参数确定性生成 task_id（含 mode/ma_period），保证幂等。"""
-    return (
+    """由全部参数确定性生成 task_id（含 mode/ma_period），保证幂等。
+
+    默认源（akshare）task_id 与历史完全一致，旧缓存可平滑命中；
+    非 akshare 源末尾追加 ``_{source}``（如 ``_tushare``），与 AkShare 结果隔离。
+    """
+    base = (
         f"dca_{p.symbol}_{p.start_date:%Y%m%d}_{p.end_date:%Y%m%d}"
         f"_{p.frequency}_{p.amount}_{p.invest_day}_{p.mode}_{p.ma_period}"
     )
+    return f"{base}_{p.source}" if p.source != "akshare" else base
 
 
 def lookback_days(mode: str, ma_period: int) -> int:
@@ -59,7 +65,7 @@ def run_backtest(db: Session, p: DcaParams) -> str:
     task_id = make_task_id(p)
     load_start = p.start_date - timedelta(days=lookback_days(p.mode, p.ma_period))
 
-    all_days = load_prices(db, p.symbol, load_start, p.end_date)
+    all_days = load_prices(db, p.symbol, load_start, p.end_date, p.source)
     if not any(d >= p.start_date for d, _ in all_days):
         raise ComputeError(
             f"标的 {p.symbol} 在 {p.start_date}~{p.end_date} 无行情数据，请先拉取数据"

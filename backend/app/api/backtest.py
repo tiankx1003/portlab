@@ -24,6 +24,7 @@ from ..services.compute.dca import (
     make_task_id,
     run_backtest,
 )
+from ..services.fetcher.registry import resolve_source, source_from_task_id
 from ..services.price_data import ensure_price_data
 from ..services.symbol_catalog import lookup_name
 
@@ -35,7 +36,9 @@ def create_dca_backtest(req: BacktestRequest, db: Session = Depends(get_db)) -> 
     """创建定投回测任务。
 
     流程：命中同参数已算结果 → 直接返回；否则按模式回溯补数据 → 计算 → 返回 task_id。
+    数据源由开关决定（开启 Tushare 则用 Tushare 表 + task_id 追加 _tushare）。
     """
+    src = resolve_source(db)
     params = DcaParams(
         symbol=req.symbol,
         frequency=req.frequency,
@@ -45,6 +48,7 @@ def create_dca_backtest(req: BacktestRequest, db: Session = Depends(get_db)) -> 
         invest_day=req.invest_day,
         mode=req.mode,
         ma_period=req.ma_period,
+        source=src,
     )
     task_id = make_task_id(params)
 
@@ -86,7 +90,11 @@ def get_chart(task_id: str, db: Session = Depends(get_db)) -> ApiResponse:
     symbol_name = lookup_name(summary.symbol) if summary else ""
     if summary:
         benchmark_returns, benchmark_name = compute_benchmark_returns(
-            db, [r.trade_date for r in rows], summary.start_date, summary.end_date
+            db,
+            [r.trade_date for r in rows],
+            summary.start_date,
+            summary.end_date,
+            source=source_from_task_id(task_id),
         )
     else:
         benchmark_returns, benchmark_name = [], ""

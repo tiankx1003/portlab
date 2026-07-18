@@ -1,6 +1,8 @@
 """收益率基准（沪深300）计算，DCA / MA120 回测共用。
 
 基准用 510300 ETF 代表沪深300，收益率与指数一致。
+行情表随回测数据源切换：开启 Tushare 时从 ``raw_price_daily_tushare`` 读基准，
+与回测主体保持同源，避免「主标用 Tushare、基准用 AkShare」的口径不一致。
 """
 
 from datetime import date
@@ -10,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models.raw import RawPriceDaily
+from .fetcher.registry import SOURCE_TABLE
 
 BENCHMARK_SYMBOL = "510300"
 BENCHMARK_NAME = "沪深300"
@@ -20,6 +23,7 @@ def compute_benchmark_returns(
     trade_dates: list[date],
     start_date: date,
     end_date: date,
+    source: str = "akshare",
 ) -> tuple[list[float | None], str]:
     """沪深300 在 [start_date, end_date] 的累计收益率（相对区间首日），按 trade_dates 对齐。
 
@@ -28,13 +32,14 @@ def compute_benchmark_returns(
     if not trade_dates:
         return [], ""
 
+    model = SOURCE_TABLE.get(source, RawPriceDaily)
     bench = {
         r.trade_date: Decimal(str(r.close))
         for r in db.execute(
-            select(RawPriceDaily.trade_date, RawPriceDaily.close).where(
-                RawPriceDaily.symbol == BENCHMARK_SYMBOL,
-                RawPriceDaily.trade_date >= start_date,
-                RawPriceDaily.trade_date <= end_date,
+            select(model.trade_date, model.close).where(
+                model.symbol == BENCHMARK_SYMBOL,
+                model.trade_date >= start_date,
+                model.trade_date <= end_date,
             )
         ).all()
     }

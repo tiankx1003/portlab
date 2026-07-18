@@ -58,6 +58,7 @@ class Ma120Params:
     sell_mode: str = "batch"  # batch/all/half
     batch_sell_step: Decimal = Decimal("0.02")  # batch: 站回 MA 后再涨此步长触发卖出
     dividend_mode: str = "cash"  # cash（reinvest 暂未实现）
+    source: str = "akshare"  # 数据源：非 akshare 时 task_id 追加后缀，使两源结果互不覆盖
 
 
 def make_task_id(p: Ma120Params) -> str:
@@ -65,15 +66,19 @@ def make_task_id(p: Ma120Params) -> str:
 
     规格文档给出基础格式，此处额外追加 crash_threshold / crash_multiplier / dividend_mode，
     使所有影响结果的参数都进入 task_id（满足"全部参数确定性生成"）。
+
+    默认源（akshare）task_id 与历史完全一致，旧缓存可平滑命中；
+    非 akshare 源末尾追加 ``_{source}``（如 ``_tushare``），与 AkShare 结果隔离。
     """
     principal = p.principal if p.principal is not None else "0"
     monthly = p.monthly_amount if p.monthly_amount is not None else "0"
-    return (
+    base = (
         f"ma120_{p.symbol}_{p.start_date:%Y%m%d}_{p.end_date:%Y%m%d}"
         f"_{p.capital_mode}_{principal}_{monthly}_{p.splits}"
         f"_{p.ma_period}_{p.buy_threshold}_{p.step}_{p.sell_mode}"
         f"_{p.crash_threshold}_{p.crash_multiplier}_{p.dividend_mode}_{p.batch_sell_step}"
     )
+    return f"{base}_{p.source}" if p.source != "akshare" else base
 
 
 def lookback_days(ma_period: int) -> int:
@@ -97,7 +102,7 @@ def run_backtest(db: Session, p: Ma120Params) -> str:
     task_id = make_task_id(p)
     load_start = p.start_date - timedelta(days=lookback_days(p.ma_period))
 
-    all_days = load_prices(db, p.symbol, load_start, p.end_date)
+    all_days = load_prices(db, p.symbol, load_start, p.end_date, p.source)
     if not any(d >= p.start_date for d, _ in all_days):
         raise ComputeError(
             f"标的 {p.symbol} 在 {p.start_date}~{p.end_date} 无行情数据，请先拉取数据"

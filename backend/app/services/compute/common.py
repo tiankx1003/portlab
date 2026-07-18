@@ -11,22 +11,28 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ...models.raw import RawPriceDaily
+from ..fetcher.registry import SOURCE_TABLE
 
 _Q4 = Decimal("0.0001")  # 百分比 / 均线 4 位
 
 
 def load_prices(
-    db: Session, symbol: str, start: date, end: date
+    db: Session, symbol: str, start: date, end: date, source: str = "akshare"
 ) -> list[tuple[date, Decimal]]:
-    """从 raw_price_daily 读取 [start, end] 收盘价（按日期升序）。"""
+    """从对应数据源行情表读取 [start, end] 收盘价（按日期升序）。
+
+    ``source='akshare'`` → ``raw_price_daily``；``source='tushare'`` → ``raw_price_daily_tushare``。
+    引擎调用时传入与 task_id 一致的源，保证「跑哪源就读哪源」。
+    """
+    model = SOURCE_TABLE.get(source, RawPriceDaily)
     rows = db.execute(
-        select(RawPriceDaily.trade_date, RawPriceDaily.close)
+        select(model.trade_date, model.close)
         .where(
-            RawPriceDaily.symbol == symbol,
-            RawPriceDaily.trade_date >= start,
-            RawPriceDaily.trade_date <= end,
+            model.symbol == symbol,
+            model.trade_date >= start,
+            model.trade_date <= end,
         )
-        .order_by(RawPriceDaily.trade_date)
+        .order_by(model.trade_date)
     ).all()
     return [(r.trade_date, Decimal(str(r.close))) for r in rows]
 

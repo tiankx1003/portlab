@@ -6,10 +6,10 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
-from ..config import settings
 from ..database import get_db
 from ..schemas.common import ApiResponse
 from ..services.fetcher import FetchError, get_fetcher
+from ..services.fetcher.registry import SOURCE_TABLE, resolve_source
 from ..services.storage import upsert_bars
 from ..utils.symbol import strip_market_prefix
 
@@ -41,22 +41,28 @@ class FetchResultData(BaseModel):
     start_date: date
     end_date: date
     rows_upserted: int
+    # 本次写入的行情源/目标表：akshare → raw_price_daily；tushare → raw_price_daily_tushare
+    source: str
     first_date: date | None = None
     last_date: date | None = None
 
 
 @router.post("/fetch", response_model=ApiResponse)
 def fetch_prices(req: FetchRequest, db: Session = Depends(get_db)) -> ApiResponse:
-    """触发数据拉取并写入 raw_price_daily（增量 UPSERT，重复拉取不产生重复）。"""
+    """触发数据拉取并写入对应源行情表（增量 UPSERT，重复拉取不产生重复）。
+
+    数据源由开关决定：开启 Tushare → 写 raw_price_daily_tushare；否则 → raw_price_daily。
+    """
+    src = resolve_source(db)
     try:
-        fetcher = get_fetcher(settings.data_source)
+        fetcher = get_fetcher(src)
         bars = fetcher.fetch_daily(req.symbol, req.start_date, req.end_date)
     except FetchError as e:
         return ApiResponse.error(message=str(e))
     except Exception as e:  # noqa: BLE001
         return ApiResponse.error(message=f"数据拉取失败: {e}")
 
-    rows_upserted = upsert_bars(db, bars)
+    rows_upserted = upsert_bars(db, bars, model=SOURCE_TABLE[src])
     first_date = bars[0].trade_date if bars else None
     last_date = bars[-1].trade_date if bars else None
 
@@ -66,6 +72,7 @@ def fetch_prices(req: FetchRequest, db: Session = Depends(get_db)) -> ApiRespons
             start_date=req.start_date,
             end_date=req.end_date,
             rows_upserted=rows_upserted,
+            source=src,
             first_date=first_date,
             last_date=last_date,
         )

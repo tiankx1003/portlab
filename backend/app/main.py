@@ -1,17 +1,136 @@
 """FastAPI 入口。"""
 
+import logging
 import threading
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
-from .api import backtest, data, feedback, health, ma120, symbols
+from .api import (
+    backtest,
+    data,
+    datasource,
+    drawboard,
+    etf_flow,
+    feedback,
+    health,
+    ma120,
+    market,
+    recent,
+    release_note,
+    roadmap,
+    symbols,
+    valuation,
+)
 from .schemas.common import ApiResponse
 from .services import symbol_catalog
 
-app = FastAPI(title="PortLab", version="0.1.0")
+logger = logging.getLogger(__name__)
+
+
+def _ensure_data_source_config() -> None:
+    """启动时确保新增表与初始数据就绪（自愈，不影响 AkShare 默认链路）。
+
+    - 按 CREATE TABLE IF NOT EXISTS 语义创建 ``raw_price_daily_tushare``、
+      ``data_source_config``、``release_notes``（幂等，不触碰其他表；
+      覆盖未手动执行 SQL 的裸机开发场景）。
+    - ``data_source_config`` 确保 ``id=1`` 默认行（开关关闭、Token 空），已存在不覆盖。
+    - ``release_notes`` 为空时预置最近迭代种子（fresh 安装由 init/04 提供；
+      此处兜底已部署库未跑 init 的情况）。
+    """
+    try:
+        from .database import Base, SessionLocal, engine
+        from .models.data_source_config import DataSourceConfig
+        from .models.raw_tushare import RawPriceDailyTushare
+        from .models.release_note import ReleaseNote
+
+        Base.metadata.create_all(
+            engine,
+            tables=[
+                DataSourceConfig.__table__,
+                RawPriceDailyTushare.__table__,
+                ReleaseNote.__table__,
+            ],
+        )
+        with SessionLocal() as db:
+            db.execute(
+                text(
+                    "INSERT INTO data_source_config (id, tushare_enabled, tushare_token) "
+                    "VALUES (1, 0, NULL) "
+                    "ON DUPLICATE KEY UPDATE id = id"
+                )
+            )
+            _seed_release_notes_if_empty(db)
+            db.commit()
+    except Exception as e:  # noqa: BLE001 - 自愈失败不阻断启动，AkShare 链路仍可用
+        logger.warning("启动自愈（数据源/更新日志表）失败（不影响 AkShare 默认链路）: %s", e)
+
+
+def _seed_release_notes_if_empty(db) -> None:
+    """release_notes 为空时预置最近迭代种子（幂等：title+released_at 唯一）。"""
+    from sqlalchemy import func, select
+
+    from .models.release_note import ReleaseNote
+
+    cnt = db.execute(select(func.count()).select_from(ReleaseNote)).scalar() or 0
+    if cnt > 0:
+        return
+    db.execute(
+        text(
+            "INSERT INTO release_notes (title, type, detail, released_at, "
+            "is_deleted, created_at) VALUES "
+            "('回测直达 / 更新日志 CLI / Tushare 限频治理', 'improvement', "
+            "'?task= 直达已有回测结果；release_notes CLI 免 SQL 维护；"
+            "Tushare 分段拉取+节流+重试', "
+            "'2026-07-18', 0, UTC_TIMESTAMP()), "
+            "('ETF 资金流向看板', 'feature', "
+            "'份额变动 + 北向资金(Tushare)，观察机构/国家队动向', "
+            "'2026-07-18', 0, UTC_TIMESTAMP()), "
+            "('回撤买入策略看板', 'feature', "
+            "'拖动回撤阈值实时定义买点，金字塔分批买入、新高清仓', "
+            "'2026-07-18', 0, UTC_TIMESTAMP()), "
+            "('更新日志 + GitHub 仓库入口', 'feature', "
+            "'导航栏铃铛展示最新 5 条变更；GitHub 外链图标', "
+            "'2026-07-18', 0, UTC_TIMESTAMP()), "
+            "('首页改版为工具箱门户', 'feature', "
+            "'市场概览/最近回测/最近更新/Roadmap；品牌区可点击回首页', "
+            "'2026-07-18', 0, UTC_TIMESTAMP()), "
+            "('Tushare 数据源扩展', 'feature', "
+            "'右上角钥匙图标开关 Tushare 数据源；Token 持久化、行情独立成表、避免重复拉取', "
+            "'2026-07-17', 0, UTC_TIMESTAMP()), "
+            "('MA120 新增止盈步长参数', 'feature', "
+            "'batch 卖出方式下可配置止盈步长，灵活控制分批卖出节奏', "
+            "'2026-07-16', 0, UTC_TIMESTAMP()), "
+            "('问题反馈功能上线', 'feature', "
+            "'右上角反馈图标，支持 Markdown 提交，反馈保留 3 天', "
+            "'2026-07-16', 0, UTC_TIMESTAMP()), "
+            "('图表图例提示与卡片交互优化', 'improvement', "
+            "'图例新增提示图标；MA120 卡片/表单交互打磨', "
+            "'2026-07-16', 0, UTC_TIMESTAMP()), "
+            "('红利 MA120 策略回测全链路', 'feature', "
+            "'新增 MA120 策略回测（计算引擎 + API + 前端）', "
+            "'2026-07-15', 0, UTC_TIMESTAMP()), "
+            "('自定义品牌图标', 'improvement', "
+            "'favicon 与左上角 Logo 自定义', "
+            "'2026-07-12', 0, UTC_TIMESTAMP()) "
+            "ON DUPLICATE KEY UPDATE title = VALUES(title)"
+        )
+    )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _ensure_data_source_config()
+    # 启动时后台预热 A 股标的目录，使名称解析（图表标题）稳定可用
+    threading.Thread(target=symbol_catalog.warmup, daemon=True).start()
+    yield
+
+
+app = FastAPI(title="PortLab", version="0.1.0", lifespan=lifespan)
 
 # 开发期允许前端（5173）跨域访问；同时 vite 已做 /api 代理
 app.add_middleware(
@@ -39,8 +158,13 @@ app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(data.router, prefix="/api/data", tags=["data"])
 app.include_router(backtest.router, prefix="/api/backtest", tags=["backtest"])
 app.include_router(ma120.router, prefix="/api/backtest", tags=["backtest"])
+app.include_router(recent.router, prefix="/api/backtest", tags=["backtest"])  # /api/backtest/recent
 app.include_router(symbols.router, prefix="/api/symbols", tags=["symbols"])
 app.include_router(feedback.router, prefix="/api/feedback", tags=["feedback"])
-
-# 启动时后台预热 A 股标的目录，使名称解析（图表标题）稳定可用
-threading.Thread(target=symbol_catalog.warmup, daemon=True).start()
+app.include_router(datasource.router, prefix="/api/datasource", tags=["datasource"])
+app.include_router(release_note.router, prefix="/api/release-notes", tags=["release-notes"])
+app.include_router(market.router, prefix="/api/market", tags=["market"])  # /api/market/overview
+app.include_router(roadmap.router, prefix="/api/roadmap", tags=["roadmap"])  # /api/roadmap
+app.include_router(drawboard.router, prefix="/api/drawboard", tags=["drawboard"])
+app.include_router(valuation.router, prefix="/api/valuation", tags=["valuation"])  # /api/valuation
+app.include_router(etf_flow.router, prefix="/api/etf-flow", tags=["etf-flow"])  # /api/etf-flow

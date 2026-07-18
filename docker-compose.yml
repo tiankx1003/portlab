@@ -31,6 +31,7 @@ services:
       DB_PASS: ${MYSQL_PASSWORD:-portlabpass}
       DB_NAME: ${MYSQL_DATABASE:-portlab}
       DATA_SOURCE: ${DATA_SOURCE:-akshare}
+      TUSHARE_TOKEN: ${TUSHARE_TOKEN:-}
     ports:
       - "8010:8010"
     depends_on:
@@ -39,6 +40,7 @@ services:
     volumes:
       - ./backend:/app
       - /app/.venv
+      - ./:/repo:ro
     command: [".venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8010", "--reload"]
 
   frontend:

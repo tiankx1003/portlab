@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models.calc import CalcMa120Backtest
-from ..models.raw import RawPriceDaily
 from ..models.result import ResultMa120Summary
 from ..schemas.common import ApiResponse
 from ..schemas.ma120 import (
@@ -26,6 +25,7 @@ from ..services.compute.ma120 import (
     make_task_id,
     run_backtest,
 )
+from ..services.fetcher.registry import SOURCE_TABLE, resolve_source, source_from_task_id
 from ..services.price_data import ensure_price_data
 from ..services.symbol_catalog import lookup_name
 
@@ -37,11 +37,13 @@ def create_ma120_backtest(req: Ma120Request, db: Session = Depends(get_db)) -> A
     """创建 MA120 策略回测任务。
 
     流程：命中同参数已算结果 → 直接返回；否则回溯补数据 → 计算 → 返回 task_id。
+    数据源由开关决定（开启 Tushare 则用 Tushare 表 + task_id 追加 _tushare）。
     """
     # 按资金模式归一化无关字段，保证 task_id 确定（recurring 忽略 principal，fixed 忽略 monthly）
     principal = req.principal if req.capital_mode in ("fixed", "hybrid") else None
     monthly_amount = req.monthly_amount if req.capital_mode in ("recurring", "hybrid") else None
 
+    src = resolve_source(db)
     params = Ma120Params(
         symbol=req.symbol,
         start_date=req.start_date,
@@ -58,6 +60,7 @@ def create_ma120_backtest(req: Ma120Request, db: Session = Depends(get_db)) -> A
         sell_mode=req.sell_mode,
         batch_sell_step=req.batch_sell_step,
         dividend_mode=req.dividend_mode,
+        source=src,
     )
     task_id = make_task_id(params)
 
@@ -98,16 +101,17 @@ def get_ma120_chart(task_id: str, db: Session = Depends(get_db)) -> ApiResponse:
     summary = db.get(ResultMa120Summary, task_id)
     symbol_name = lookup_name(summary.symbol) if summary else ""
 
-    # 收盘价从 raw_price_daily 读取（calc 表未存 close），用于 markPoint 与 tooltip
+    # 收盘价从对应数据源行情表读取（calc 表未存 close），用于 markPoint 与 tooltip
+    price_model = SOURCE_TABLE[source_from_task_id(task_id)]
     closes: dict = {}
     if summary:
         closes = {
             r.trade_date: float(r.close)
             for r in db.execute(
-                select(RawPriceDaily.trade_date, RawPriceDaily.close).where(
-                    RawPriceDaily.symbol == summary.symbol,
-                    RawPriceDaily.trade_date >= rows[0].trade_date,
-                    RawPriceDaily.trade_date <= rows[-1].trade_date,
+                select(price_model.trade_date, price_model.close).where(
+                    price_model.symbol == summary.symbol,
+                    price_model.trade_date >= rows[0].trade_date,
+                    price_model.trade_date <= rows[-1].trade_date,
                 )
             ).all()
         }
@@ -115,7 +119,11 @@ def get_ma120_chart(task_id: str, db: Session = Depends(get_db)) -> ApiResponse:
     trade_dates = [r.trade_date for r in rows]
     if summary:
         benchmark_returns, benchmark_name = compute_benchmark_returns(
-            db, trade_dates, summary.start_date, summary.end_date
+            db,
+            trade_dates,
+            summary.start_date,
+            summary.end_date,
+            source=source_from_task_id(task_id),
         )
     else:
         benchmark_returns, benchmark_name = [], ""

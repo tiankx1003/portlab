@@ -1,12 +1,14 @@
-"""数据源工厂。根据配置（DATA_SOURCE）返回对应 Fetcher 实例。"""
+"""数据源工厂。根据 source 返回对应 Fetcher 实例（akshare / tushare）。"""
 
 from .akshare_fetcher import AkShareFetcher
 from .base import DataFetcher, FetchError, PriceBar
+from .tushare_fetcher import TushareFetcher
 
 __all__ = ["DataFetcher", "FetchError", "PriceBar", "get_fetcher"]
 
 _FETCHERS: dict[str, type[DataFetcher]] = {
     "akshare": AkShareFetcher,
+    "tushare": TushareFetcher,
 }
 
 

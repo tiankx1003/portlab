@@ -11,6 +11,7 @@ dependencies = [
     "pydantic-settings>=2.5",
     "akshare>=1.14",
     "pandas>=2.0",
+    "tushare>=1.4",
 ]
 
 [dependency-groups]
