@@ -4,6 +4,7 @@ import Backtest from '../views/Backtest.vue'
 import Ma120Backtest from '../views/Ma120Backtest.vue'
 import DrawboardView from '../views/DrawboardView.vue'
 import EtfFlowView from '../views/EtfFlowView.vue'
+import ValuationView from '../views/ValuationView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -13,6 +14,7 @@ const router = createRouter({
     { path: '/ma120', name: 'ma120', component: Ma120Backtest },
     { path: '/drawboard', name: 'drawboard', component: DrawboardView },
     { path: '/etf-flow', name: 'etf-flow', component: EtfFlowView },
+    { path: '/valuation', name: 'valuation', component: ValuationView },
   ],
 })
 

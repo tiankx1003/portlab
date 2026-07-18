@@ -395,4 +395,23 @@ export async function getEtfFlow(
   return res.data
 }
 
+// ---- valuation: 估值温度计（016）----
+export interface ValuationData {
+  available: boolean
+  reason?: string
+  symbol?: string
+  name?: string
+  current_pe?: number
+  percentile?: number // 0~100，越大越贵
+  min?: number
+  max?: number
+  as_of?: string
+  series?: [string, number][] // (date, pe)
+}
+
+export async function getValuation(symbol: string): Promise<ApiResponse<ValuationData>> {
+  const res = await http.get<ApiResponse<ValuationData>>('/valuation', { params: { symbol } })
+  return res.data
+}
+
 export default http

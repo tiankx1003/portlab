@@ -1,8 +1,10 @@
 """FastAPI 入口。"""
 
+import importlib.util
 import logging
 import threading
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -83,6 +85,10 @@ def _seed_release_notes_if_empty(db) -> None:
         text(
             "INSERT INTO release_notes (title, type, detail, released_at, "
             "is_deleted, created_at) VALUES "
+            "('估值温度计 / 估值分位看板', 'feature', "
+            "'指数 PE 历史分位 + 温度计仪表，回答「现在贵不贵」"
+            "（沪深300/中证500/中证1000/上证50/创业板指）', "
+            "'2026-07-18', 0, UTC_TIMESTAMP()), "
             "('回测直达 / 更新日志 CLI / Tushare 限频治理', 'improvement', "
             "'?task= 直达已有回测结果；release_notes CLI 免 SQL 维护；"
             "Tushare 分段拉取+节流+重试', "
@@ -122,8 +128,26 @@ def _seed_release_notes_if_empty(db) -> None:
     )
 
 
+def _ensure_py_mini_racer_lib() -> None:
+    """老版 py_mini_racer 在 aarch64 把原生库存成 ``armlibmini_racer.glibc.so``，
+    但加载器找 ``libmini_racer.glibc.so`` → 补软链修复（乐咕乐股 PE 接口依赖）。"""
+    try:
+        spec = importlib.util.find_spec("py_mini_racer")
+        if not spec or not spec.submodule_search_locations:
+            return
+        d = Path(spec.submodule_search_locations[0])
+        arm = d / "armlibmini_racer.glibc.so"
+        target = d / "libmini_racer.glibc.so"
+        if arm.exists() and not target.exists():
+            target.symlink_to("armlibmini_racer.glibc.so")
+            logger.info("py_mini_racer: 补软链 libmini_racer.glibc.so")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("py_mini_racer 软链自愈失败（估值接口将降级）: %s", e)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _ensure_py_mini_racer_lib()
     _ensure_data_source_config()
     # 启动时后台预热 A 股标的目录，使名称解析（图表标题）稳定可用
     threading.Thread(target=symbol_catalog.warmup, daemon=True).start()

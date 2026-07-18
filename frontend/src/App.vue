@@ -23,6 +23,7 @@ import ReleaseNotesWidget from './components/ReleaseNotesWidget.vue'
         <RouterLink to="/ma120">MA120 策略</RouterLink>
         <RouterLink to="/drawboard">回撤看板</RouterLink>
         <RouterLink to="/etf-flow">ETF 流向</RouterLink>
+        <RouterLink to="/valuation">估值</RouterLink>
       </nav>
       <div class="nav-actions">
         <FeedbackWidget />

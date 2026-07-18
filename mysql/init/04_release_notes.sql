@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS release_notes (
 
 -- 预置最近迭代种子（幂等：title+released_at 唯一，重复执行不产生重复行）
 INSERT INTO release_notes (title, type, detail, released_at, created_at) VALUES
+('估值温度计 / 估值分位看板',   'feature',     '指数 PE 历史分位 + 温度计仪表，回答「现在贵不贵」（沪深300/中证500/中证1000/上证50/创业板指）', '2026-07-18', UTC_TIMESTAMP()),
 ('回测直达 / 更新日志 CLI / Tushare 限频治理', 'improvement', '?task= 直达已有回测结果；release_notes CLI 免 SQL 维护；Tushare 分段拉取+节流+重试', '2026-07-18', UTC_TIMESTAMP()),
 ('ETF 资金流向看板',           'feature',     '份额变动 + 北向资金(Tushare)，观察机构/国家队动向',  '2026-07-18', UTC_TIMESTAMP()),
 ('回撤买入策略看板',           'feature',     '拖动回撤阈值实时定义买点，金字塔分批买入、新高清仓',  '2026-07-18', UTC_TIMESTAMP()),

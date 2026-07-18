@@ -55,14 +55,19 @@ def get_valuation(symbol: str) -> dict:
     if df is None or len(df) == 0:
         return {"available": False, "reason": "PE 数据为空"}
 
-    pe_col = "市盈率" if "市盈率" in df.columns else df.columns[-1]
+    # 乐咕乐股列名：静态市盈率 / 滚动市盈率（优先静态）
+    pe_col = next(
+        (c for c in ("静态市盈率", "滚动市盈率", "市盈率") if c in df.columns), df.columns[-1]
+    )
     date_col = "日期" if "日期" in df.columns else df.columns[0]
-    hist = sorted(float(v) for v in df[pe_col].dropna().tolist())
-    if not hist:
-        return {"available": False, "reason": "PE 数据为空"}
-    cur = hist[-1]
+    # 按日期升序、丢 NaN；当前 PE = 最新一行，分位用全部历史
+    df = df.sort_values(date_col).dropna(subset=[pe_col])
     dates = [str(x) for x in df[date_col].tolist()]
     pes = [float(v) for v in df[pe_col].tolist()]
+    if not pes:
+        return {"available": False, "reason": "PE 数据为空"}
+    cur = pes[-1]
+    hist = sorted(pes)
     series = list(zip(dates, pes, strict=False))
     return {
         "available": True,
