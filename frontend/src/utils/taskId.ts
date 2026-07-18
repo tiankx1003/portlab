@@ -1,0 +1,101 @@
+/** task_id 解析：从回测 task_id 反推表单参数（用于 012 回测直达 ?task= 预载回填）。
+ *
+ * 约定与后端 make_task_id 一致；非 akshare 源末尾追加 _{source}（如 _tushare）。
+ * 解析失败返回 null（调用方仅展示结果、不回填）。
+ */
+
+function toIsoDate(yyyymmdd: string): string {
+  if (!/^\d{8}$/.test(yyyymmdd)) return ''
+  return `${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`
+}
+
+function stripSourceSuffix(parts: string[]): string[] {
+  if (parts.length && parts[parts.length - 1] === 'tushare') return parts.slice(0, -1)
+  return parts
+}
+
+export interface DcaTaskParts {
+  symbol: string
+  startDate: string
+  endDate: string
+  frequency: 'weekly' | 'monthly'
+  amount: number
+  investDay: number
+  mode: 'normal' | 'smart'
+  maPeriod: number
+}
+
+/** dca_{symbol}_{start}_{end}_{frequency}_{amount}_{invest_day}_{mode}_{ma_period} */
+export function parseDcaTaskId(taskId: string): DcaTaskParts | null {
+  const parts = stripSourceSuffix(taskId.split('_'))
+  if (parts.length < 9 || parts[0] !== 'dca') return null
+  const [, symbol, start, end, frequency, amount, investDay, mode, maPeriod] = parts
+  if (frequency !== 'weekly' && frequency !== 'monthly') return null
+  if (mode !== 'normal' && mode !== 'smart') return null
+  const sd = toIsoDate(start)
+  const ed = toIsoDate(end)
+  if (!sd || !ed) return null
+  return {
+    symbol,
+    startDate: sd,
+    endDate: ed,
+    frequency,
+    amount: Number(amount),
+    investDay: Number(investDay),
+    mode,
+    maPeriod: Number(maPeriod),
+  }
+}
+
+export interface Ma120TaskParts {
+  symbol: string
+  startDate: string
+  endDate: string
+  capitalMode: 'fixed' | 'recurring' | 'hybrid'
+  principal: number | null
+  monthly: number | null
+  splits: number
+  maPeriod: number
+  buyThreshold: number
+  step: number
+  sellMode: 'batch' | 'all' | 'half'
+  crashThreshold: number
+  crashMultiplier: number
+  dividendMode: 'cash' | 'reinvest'
+  batchSellStep: number
+}
+
+/**
+ * ma120_{symbol}_{start}_{end}_{capital_mode}_{principal}_{monthly}_{splits}
+ * _{ma_period}_{buy_threshold}_{step}_{sell_mode}_{crash_threshold}_{crash_multiplier}
+ * _{dividend_mode}_{batch_sell_step}
+ */
+export function parseMa120TaskId(taskId: string): Ma120TaskParts | null {
+  const parts = stripSourceSuffix(taskId.split('_'))
+  if (parts.length < 16 || parts[0] !== 'ma120') return null
+  const [, symbol, start, end, capitalMode, principal, monthly, splits, maPeriod, buyThreshold,
+    step, sellMode, crashThreshold, crashMultiplier, dividendMode, batchSellStep] = parts
+  if (!['fixed', 'recurring', 'hybrid'].includes(capitalMode)) return null
+  if (!['batch', 'all', 'half'].includes(sellMode)) return null
+  if (!['cash', 'reinvest'].includes(dividendMode)) return null
+  const sd = toIsoDate(start)
+  const ed = toIsoDate(end)
+  if (!sd || !ed) return null
+  return {
+    symbol,
+    startDate: sd,
+    endDate: ed,
+    capitalMode: capitalMode as Ma120TaskParts['capitalMode'],
+    principal: principal === '0' ? null : Number(principal),
+    monthly: monthly === '0' ? null : Number(monthly),
+    splits: Number(splits),
+    maPeriod: Number(maPeriod),
+    buyThreshold: Number(buyThreshold),
+    step: Number(step),
+    sellMode: sellMode as Ma120TaskParts['sellMode'],
+    crashThreshold: Number(crashThreshold),
+    crashMultiplier: Number(crashMultiplier),
+    dividendMode: dividendMode as Ma120TaskParts['dividendMode'],
+    batchSellStep: Number(batchSellStep),
+  }
+}

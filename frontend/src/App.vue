@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { theme, toggleTheme } from './composables/useTheme'
+import { GITHUB_REPO } from './config'
+import DataSourceWidget from './components/DataSourceWidget.vue'
 import FeedbackWidget from './components/FeedbackWidget.vue'
+import ReleaseNotesWidget from './components/ReleaseNotesWidget.vue'
 </script>
 
 <template>
   <div class="layout">
     <header class="nav">
-      <div class="brand">
+      <RouterLink to="/" class="brand" title="返回首页">
         <svg class="brand-logo" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
           <path d="M742.4 192H281.6a134.4 134.4 0 0 0-134.4 134.4v371.2c0 74.24 60.16 134.4 134.4 134.4h460.8c74.24 0 134.4-60.16 134.4-134.4v-371.2c0-74.24-60.16-134.4-134.4-134.4zM281.6 256h460.8a70.4 70.4 0 0 1 70.4 70.4v371.2A70.4 70.4 0 0 1 742.4 768H281.6a70.4 70.4 0 0 1-70.4-70.4v-371.2A70.4 70.4 0 0 1 281.6 256z" fill="#FB553C"/>
           <path d="M332.8 500.6336m38.4 0l0 0q38.4 0 38.4 38.4l0 88.1664q0 38.4-38.4 38.4l0 0q-38.4 0-38.4-38.4l0-88.1664q0-38.4 38.4-38.4Z" fill="#FB553C"/>
@@ -14,14 +17,37 @@ import FeedbackWidget from './components/FeedbackWidget.vue'
           <path d="M473.6 352.4096m38.4 0l0 0q38.4 0 38.4 38.4l0 236.3904q0 38.4-38.4 38.4l0 0q-38.4 0-38.4-38.4l0-236.3904q0-38.4 38.4-38.4Z" fill="#FB553C"/>
         </svg>
         PortLab
-      </div>
+      </RouterLink>
       <nav class="nav-links">
-        <RouterLink to="/">首页</RouterLink>
         <RouterLink to="/backtest">定投回测</RouterLink>
         <RouterLink to="/ma120">MA120 策略</RouterLink>
+        <RouterLink to="/drawboard">回撤看板</RouterLink>
+        <RouterLink to="/etf-flow">ETF 流向</RouterLink>
       </nav>
       <div class="nav-actions">
         <FeedbackWidget />
+        <DataSourceWidget />
+        <ReleaseNotesWidget />
+        <a
+          class="nav-icon-btn github-link"
+          :href="GITHUB_REPO"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="GitHub 仓库"
+          aria-label="GitHub 仓库"
+        >
+          <svg
+            class="github-icon"
+            viewBox="0 0 1024 1024"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <path
+              d="M511.6 76.3C264.3 76.2 64 276.4 64 523.5 64 718.9 189.3 885 363.8 946c23.5 5.9 19.9-10.8 19.9-22.2v-77.5c-135.7 15.9-141.2-73.9-150.3-88.9C215 726 171.5 718 184.5 703c30.9-15.9 62.4 4 98.9 57.9 26.4 39.1 77.9 32.5 104 26 5.7-23.5 17.9-44.5 34.7-60.8-140.6-25.2-199.2-111-199.2-213 0-49.5 16.3-95 48.3-131.7-20.4-60.5 1.9-112.3 4.9-120 58.1-5.2 118.5 41.6 123.2 45.3 33-8.9 70.7-13.6 112.9-13.6 42.4 0 80.2 4.9 113.5 13.9 11.3-8.6 67.3-48.8 121.3-43.9 2.9 7.7 24.7 58.3 5.5 118 32.4 36.8 48.9 82.7 48.9 132.3 0 102.2-59 188.1-200 212.9 23.5 23.2 38.1 55.4 38.1 91v112.5c0.8 9 0 17.9 15 17.9 177.1-59.7 304.6-227 304.6-424.1 0-247.2-200.4-447.3-447.5-447.3z"
+              fill="currentColor"
+            />
+          </svg>
+        </a>
         <button
           class="theme-switch"
           :class="{ dark: theme === 'dark' }"
@@ -111,11 +137,23 @@ body {
   padding-right: 24px;
   margin-right: 8px;
   border-right: 1px solid var(--border);
+  text-decoration: none;
+  color: var(--text);
+  cursor: pointer;
+  transition: color 0.2s;
+}
+.brand:hover {
+  color: var(--primary);
+}
+/* 主页态（router-link-active）不加下划线 / 不变 primary，区别于功能页 */
+.brand.router-link-active {
+  color: var(--text);
+  border-bottom: none;
 }
 .brand-logo {
-  width: 22px;
-  height: 22px;
-  margin-right: 8px;
+  width: 24px;
+  height: 24px;
+  margin-right: 10px;
   flex-shrink: 0;
 }
 .nav-links {
@@ -152,6 +190,29 @@ body {
   padding: 24px 32px;
   max-width: 1600px;
   margin: 0 auto;
+}
+
+/* ---------- 导航栏外链图标按钮（GitHub 等） ---------- */
+.nav-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s;
+}
+.nav-icon-btn:hover {
+  color: var(--text);
+  background: var(--hover-bg);
+}
+.github-icon {
+  width: 20px;
+  height: 20px;
 }
 
 /* ---------- 主题开关 ---------- */

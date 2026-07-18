@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import MetricCard from '../components/MetricCard.vue'
 import DcaChart from '../components/DcaChart.vue'
 import {
@@ -11,6 +12,9 @@ import {
   type SummaryData,
   type SymbolItem,
 } from '../api'
+import { parseDcaTaskId } from '../utils/taskId'
+
+const route = useRoute()
 
 // A 股配色惯例：红涨绿跌
 const COLOR_UP = '#ee6666' // 盈利
@@ -154,6 +158,40 @@ async function runBacktest() {
     loading.value = false
   }
 }
+
+// 012 回测直达：从 URL ?task= 预载已有结果，并尽量回填表单参数
+async function loadTask(taskId: string) {
+  loading.value = true
+  errorMsg.value = ''
+  chartData.value = null
+  summary.value = null
+  try {
+    const parsed = parseDcaTaskId(taskId)
+    if (parsed) {
+      symbol.value = parsed.symbol
+      startDate.value = parsed.startDate
+      endDate.value = parsed.endDate
+      frequency.value = parsed.frequency
+      amount.value = parsed.amount
+      investDay.value = parsed.investDay
+      mode.value = parsed.mode
+      maPeriod.value = parsed.maPeriod
+    }
+    const [c, s] = await Promise.all([getChart(taskId), getSummary(taskId)])
+    if (c.code === 0) chartData.value = c.data
+    if (s.code === 0) summary.value = s.data
+    if (c.code !== 0 && s.code !== 0) errorMsg.value = c.message || s.message
+  } catch (e) {
+    errorMsg.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(() => {
+  const t = route.query.task
+  if (typeof t === 'string' && t) loadTask(t)
+})
 
 // 图表标题：标的名称 · 回测结果（无名称时回退为代码）
 const chartTitle = computed(() => {

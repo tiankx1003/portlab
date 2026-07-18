@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import MetricCard from '../components/MetricCard.vue'
 import Ma120Chart from '../components/Ma120Chart.vue'
 import {
@@ -14,6 +15,9 @@ import {
   type SellMode,
   type SymbolItem,
 } from '../api'
+import { parseMa120TaskId } from '../utils/taskId'
+
+const route = useRoute()
 
 // A 股配色惯例：红涨绿跌
 const COLOR_UP = '#ee6666'
@@ -147,6 +151,47 @@ async function runBacktest() {
     loading.value = false
   }
 }
+
+// 012 回测直达：从 URL ?task= 预载已有结果，并尽量回填表单参数
+async function loadTask(taskId: string) {
+  loading.value = true
+  errorMsg.value = ''
+  chartData.value = null
+  summary.value = null
+  try {
+    const parsed = parseMa120TaskId(taskId)
+    if (parsed) {
+      symbol.value = parsed.symbol
+      startDate.value = parsed.startDate
+      endDate.value = parsed.endDate
+      capitalMode.value = parsed.capitalMode
+      principal.value = parsed.principal ?? 0
+      monthlyAmount.value = parsed.monthly ?? 0
+      splits.value = parsed.splits
+      maPeriod.value = parsed.maPeriod
+      buyThreshold.value = parsed.buyThreshold
+      step.value = parsed.step
+      crashThreshold.value = parsed.crashThreshold
+      crashMultiplier.value = parsed.crashMultiplier
+      sellMode.value = parsed.sellMode
+      batchSellStep.value = parsed.batchSellStep
+      dividendMode.value = parsed.dividendMode
+    }
+    const [c, s] = await Promise.all([getMa120Chart(taskId), getMa120Summary(taskId)])
+    if (c.code === 0) chartData.value = c.data
+    if (s.code === 0) summary.value = s.data
+    if (c.code !== 0 && s.code !== 0) errorMsg.value = c.message || s.message
+  } catch (e) {
+    errorMsg.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(() => {
+  const t = route.query.task
+  if (typeof t === 'string' && t) loadTask(t)
+})
 
 const chartTitle = computed(() => {
   const code = normalizedSymbol.value || symbol.value.trim()
