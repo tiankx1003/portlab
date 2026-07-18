@@ -34,8 +34,8 @@ def backtest(
     symbol: str,
     start: date,
     end: date,
-    threshold: float = 20.0,  # 回撤买入阈值 %
-    step: float = 5.0,  # 每再多跌 N% 加仓
+    threshold: float = 10.0,  # 回撤买入阈值 %
+    step: float = 2.0,  # 每再多跌 N% 加仓
     buy_amount: float = 10000.0,  # 首次买入金额
     add_amount: float = 10000.0,  # 每次加仓金额
     db: Session = Depends(get_db),

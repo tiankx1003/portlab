@@ -20,8 +20,8 @@ const C_SELL = '#3ba272'
 const symbol = ref('512890')
 const startDate = ref('2022-01-01')
 const endDate = ref(new Date().toISOString().slice(0, 10))
-const threshold = ref(20)
-const step = ref(5)
+const threshold = ref(10)
+const step = ref(2)
 const buyAmount = ref(10000)
 const addAmount = ref(10000)
 
