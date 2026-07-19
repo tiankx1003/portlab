@@ -1,59 +1,151 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import * as echarts from 'echarts'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import MetricCard from '../components/MetricCard.vue'
+import DrawboardChart from '../components/DrawboardChart.vue'
 import {
-  getDrawdownSeries,
+  getDrawboardChart,
+  getDrawboardSummary,
   runDrawdownBacktest,
-  type DrawBacktestResult,
-  type DrawdownSeries,
+  saveDrawboard,
+  searchSymbols,
+  type DrawboardChartData,
+  type DrawSellMode,
+  type DrawSummary,
+  type SymbolItem,
 } from '../api'
+import { parseDrawboardTaskId } from '../utils/taskId'
 
-// A 股配色：红涨绿跌
-const C_PRICE = '#ee6666' // 价格/收益（红）
-const C_DD = '#3ba272' // 回撤（绿）
-const C_BENCH = '#8a8f99' // 基准（灰）
-const C_MV = '#1f6feb' // 市值（蓝）
-const C_BUY = '#ee6666'
-const C_SELL = '#3ba272'
+const route = useRoute()
 
-const symbol = ref('512890')
-const startDate = ref('2022-01-01')
-const endDate = ref(new Date().toISOString().slice(0, 10))
-const threshold = ref(10)
-const step = ref(2)
-const buyAmount = ref(10000)
-const addAmount = ref(10000)
+// A 股配色惯例：红涨绿跌
+const COLOR_UP = '#ee6666'
+const COLOR_DOWN = '#3ba272'
 
-const loading = ref(false)
-const errorMsg = ref('')
-const series = ref<DrawdownSeries | null>(null)
-const result = ref<DrawBacktestResult | null>(null)
-
-const el = ref<HTMLDivElement | null>(null)
-let chart: echarts.ECharts | null = null
-let resizeObs: ResizeObserver | null = null
-
-const summary = computed(() => result.value?.summary ?? null)
-
-function fmt(n: number | undefined | null, d = 2): string {
-  if (n == null || Number.isNaN(n)) return '-'
-  return n.toLocaleString('zh-CN', { minimumFractionDigits: d, maximumFractionDigits: d })
+// 近 3 年起始日（前端算，后端不强制）
+function yearsAgo(n: number): string {
+  const d = new Date()
+  d.setFullYear(d.getFullYear() - n)
+  return d.toISOString().slice(0, 10)
 }
 
-async function loadSeries() {
-  loading.value = true
+const symbol = ref('510880')
+const startDate = ref(yearsAgo(3))
+const endDate = ref(new Date().toISOString().slice(0, 10))
+const sellMode = ref<DrawSellMode>('new_high')
+const buyAmount = ref(10000)
+const addAmount = ref(5000)
+const threshold = ref(20)
+const step = ref(5)
+const showAdvanced = ref(false)
+
+const loading = ref(false)
+const saving = ref(false)
+const errorMsg = ref('')
+const savedMsg = ref('')
+const chartData = ref<DrawboardChartData | null>(null)
+const summary = ref<DrawSummary | null>(null)
+
+const SELL_LABEL: Record<DrawSellMode, string> = {
+  none: '只买不卖',
+  new_high: '新高清仓',
+  partial: '半仓兑现',
+}
+const sellHint = computed(
+  () =>
+    ({
+      none: '只买不卖，持仓展示收益率',
+      new_high: '新高（回撤归 0）清仓兑现',
+      partial: '新高卖出 50%，留底仓等下次跌破再买',
+    })[sellMode.value],
+)
+
+// ---- 标的搜索（带去抖）----
+const suggestions = ref<SymbolItem[]>([])
+let debounce: ReturnType<typeof setTimeout> | undefined
+function onSymbolInput() {
+  clearTimeout(debounce)
+  const q = normalizedSymbol.value || symbol.value.trim()
+  if (!q) {
+    suggestions.value = []
+    return
+  }
+  debounce = setTimeout(async () => {
+    try {
+      const r = await searchSymbols(q)
+      suggestions.value = r.code === 0 ? r.data : []
+    } catch {
+      suggestions.value = []
+    }
+  }, 250)
+}
+
+function detectMarket(code: string): string {
+  const c = code.trim()
+  if (!/^\d{6}$/.test(c)) return ''
+  const h2 = c.slice(0, 2)
+  if (['60', '68', '51', '52', '56', '58', '50', '90', '11', '13'].includes(h2)) return 'SH'
+  if (['00', '30', '15', '16', '18', '20'].includes(h2)) return 'SZ'
+  if (['43', '83', '87', '92'].includes(h2)) return 'BJ'
+  if (c[0] === '6' || c[0] === '5' || c[0] === '9') return 'SH'
+  if (c[0] === '0' || c[0] === '3') return 'SZ'
+  if (c[0] === '4' || c[0] === '8') return 'BJ'
+  return ''
+}
+
+const normalizedSymbol = computed(() =>
+  symbol.value.trim().replace(/^(sh|sz|bj)/i, '').toUpperCase(),
+)
+
+const symbolHint = computed(() => {
+  const code = normalizedSymbol.value
+  if (!/^\d{6}$/.test(code)) return ''
+  const m = detectMarket(code)
+  if (!m) return ''
+  const hit = suggestions.value.find((s) => s.code === code)
+  return hit ? `.${m}  ${hit.name}` : `.${m}`
+})
+
+function validate(): string {
+  const code = normalizedSymbol.value
+  if (!code) return '请填写有效的标的代码'
+  if (!buyAmount.value || buyAmount.value <= 0) return '首笔金额需 > 0'
+  if (!addAmount.value || addAmount.value <= 0) return '加仓金额需 > 0'
+  if (!threshold.value || threshold.value <= 0) return '回撤阈值需 > 0'
+  if (!step.value || step.value <= 0) return '加仓步长需 > 0'
+  if (startDate.value >= endDate.value) return '起始日期需早于结束日期'
+  return ''
+}
+
+// 实时重算（GET /backtest，不落库）——「开始回测」按钮触发
+async function runBacktest() {
   errorMsg.value = ''
-  series.value = null
-  result.value = null
+  const err = validate()
+  if (err) {
+    errorMsg.value = err
+    return
+  }
+  loading.value = true
+  chartData.value = null
+  summary.value = null
   try {
-    const r = await getDrawdownSeries(symbol.value, startDate.value, endDate.value)
+    const r = await runDrawdownBacktest({
+      symbol: normalizedSymbol.value,
+      start: startDate.value,
+      end: endDate.value,
+      threshold: threshold.value,
+      step: step.value,
+      buy_amount: buyAmount.value,
+      add_amount: addAmount.value,
+      sell_mode: sellMode.value,
+    })
     if (r.code !== 0) {
       errorMsg.value = r.message
       return
     }
-    series.value = r.data
-    await runBacktest()
+    // DrawBacktestResult = 图表数据 + summary；拆给组件与卡片
+    summary.value = r.data.summary
+    chartData.value = r.data
   } catch (e) {
     errorMsg.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -61,132 +153,133 @@ async function loadSeries() {
   }
 }
 
-async function runBacktest() {
-  if (!series.value?.dates.length) return
+// 保存落库（POST /save）——「保存」按钮触发，返回 task_id 供首页/直达消费
+async function save() {
+  errorMsg.value = ''
+  savedMsg.value = ''
+  const err = validate()
+  if (err) {
+    errorMsg.value = err
+    return
+  }
+  saving.value = true
   try {
-    const r = await runDrawdownBacktest({
-      symbol: symbol.value,
-      start: startDate.value,
-      end: endDate.value,
+    const r = await saveDrawboard({
+      symbol: normalizedSymbol.value,
+      start_date: startDate.value,
+      end_date: endDate.value,
       threshold: threshold.value,
       step: step.value,
       buy_amount: buyAmount.value,
       add_amount: addAmount.value,
+      sell_mode: sellMode.value,
     })
-    if (r.code === 0) result.value = r.data
-  } catch {
-    /* 忽略，series 仍可看 */
+    if (r.code !== 0) {
+      errorMsg.value = r.message
+      return
+    }
+    savedMsg.value = `已保存（task_id：${r.data.task_id.slice(0, 24)}…），可从首页「最近记录」查看`
+    setTimeout(() => (savedMsg.value = ''), 6000)
+  } catch (e) {
+    errorMsg.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    saving.value = false
   }
 }
 
-function buildOption(): echarts.EChartsOption {
-  const s = series.value
-  if (!s) return {}
-  // 基准按日对齐（同为日线交易日，长度一致才叠加，避免错位）
-  const benchAligned =
-    s.benchmark_pct.length === s.dates.length ? s.benchmark_pct : s.dates.map(() => null)
-  const r = result.value
-  const retAligned = r && r.dates.length === s.dates.length ? r.return_rates : s.dates.map(() => null)
-  const mvAligned = r && r.dates.length === s.dates.length ? r.market_values : s.dates.map(() => null)
-
-  // 买/卖 markPoint：用 date → price_pct 定位
-  const ppByDate = new Map<string, number | null>()
-  s.dates.forEach((d, i) => ppByDate.set(d, s.price_pct[i]))
-  const mkPoint = (pts: { date: string; price: number; amount: number }[], color: string) =>
-    pts.map((p) => ({
-      coord: [p.date, ppByDate.get(p.date) ?? 0],
-      value: color === C_BUY ? '买' : '卖',
-      itemStyle: { color },
-    }))
-
-  return {
-    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
-    legend: { data: ['价格%', '回撤%', '基准%', '策略收益%', '市值(元)'], top: 0 },
-    grid: { left: 56, right: 64, top: 40, bottom: 60 },
-    xAxis: { type: 'category', data: s.dates, axisLabel: { fontSize: 10 } },
-    yAxis: [
-      {
-        type: 'value',
-        name: '%',
-        position: 'left',
-        axisLine: { lineStyle: { color: C_PRICE } },
-      },
-      { type: 'value', name: '市值', position: 'right', axisLine: { lineStyle: { color: C_MV } } },
-    ],
-    dataZoom: [{ type: 'inside' }, { type: 'slider', height: 18, bottom: 8 }],
-    series: ([
-      {
-        name: '价格%', type: 'line', data: s.price_pct, yAxisIndex: 0, smooth: true,
-        symbol: 'none', lineStyle: { color: C_PRICE, width: 2 },
-        markPoint: {
-          symbol: 'pin', symbolSize: 38,
-          data: [...(r ? mkPoint(r.buy_points, C_BUY) : []), ...(r ? mkPoint(r.sell_points, C_SELL) : [])],
-        },
-        markLine: {
-          symbol: 'none',
-          lineStyle: { color: C_DD, type: 'dashed', width: 1.5 },
-          label: { formatter: `阈值 -${threshold.value}%`, position: 'insideEndTop', color: C_DD },
-          data: [{ yAxis: -threshold.value }],
-        },
-      },
-      {
-        name: '回撤%', type: 'line', data: s.drawdown, yAxisIndex: 0, symbol: 'none',
-        lineStyle: { color: C_DD, width: 1.2 }, areaStyle: { opacity: 0.08 },
-      },
-      {
-        name: '基准%', type: 'line', data: benchAligned, yAxisIndex: 0, symbol: 'none',
-        lineStyle: { color: C_BENCH, width: 1, type: 'dashed' },
-      },
-      {
-        name: '策略收益%', type: 'line', data: retAligned, yAxisIndex: 0, symbol: 'none',
-        lineStyle: { color: '#faad14', width: 1.2 },
-      },
-      {
-        name: '市值(元)', type: 'line', data: mvAligned, yAxisIndex: 1, symbol: 'none',
-        lineStyle: { color: C_MV, width: 1.5 },
-      },
-    ] as any[]),
+// 012 回测直达：从 URL ?task= 预载已有结果，并尽量回填表单参数
+async function loadTask(taskId: string) {
+  loading.value = true
+  errorMsg.value = ''
+  chartData.value = null
+  summary.value = null
+  try {
+    const parsed = parseDrawboardTaskId(taskId)
+    if (parsed) {
+      symbol.value = parsed.symbol
+      startDate.value = parsed.startDate
+      endDate.value = parsed.endDate
+      threshold.value = parsed.threshold
+      step.value = parsed.step
+      buyAmount.value = parsed.buyAmount
+      addAmount.value = parsed.addAmount
+      sellMode.value = parsed.sellMode
+    }
+    const [c, s] = await Promise.all([getDrawboardChart(taskId), getDrawboardSummary(taskId)])
+    if (c.code === 0) chartData.value = c.data
+    if (s.code === 0) summary.value = s.data
+    if (c.code !== 0 && s.code !== 0) errorMsg.value = c.message || s.message
+  } catch (e) {
+    errorMsg.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    loading.value = false
   }
 }
 
-function render() {
-  if (!chart) return
-  chart.setOption(buildOption(), true)
-}
-
-// 阈值/步长/金额变化（slider 松手 @change）→ 重算
-watch([threshold, step, buyAmount, addAmount], () => {
-  if (series.value) runBacktest().then(render)
-})
-watch([series, result], () => nextTick(render), { deep: true })
-
-const resize = () => chart?.resize()
 onMounted(() => {
-  if (el.value) chart = echarts.init(el.value)
-  resizeObs = new ResizeObserver(resize)
-  if (el.value) resizeObs.observe(el.value)
-  loadSeries()
+  const t = route.query.task
+  if (typeof t === 'string' && t) loadTask(t)
 })
-onUnmounted(() => {
-  resizeObs?.disconnect()
-  chart?.dispose()
-  chart = null
+
+const chartTitle = computed(() => {
+  const code = normalizedSymbol.value || symbol.value.trim()
+  const name = chartData.value?.symbol_name
+  return `${name || code} · 回撤买入策略回测（${SELL_LABEL[sellMode.value]}）`
 })
+
+function fmt(n: number | undefined | null, d = 2): string {
+  if (n == null || Number.isNaN(n)) return '-'
+  return n.toLocaleString('zh-CN', { minimumFractionDigits: d, maximumFractionDigits: d })
+}
+function pnlColor(n: number | undefined | null): string {
+  if (n == null) return ''
+  return n >= 0 ? COLOR_UP : COLOR_DOWN
+}
 </script>
 
 <template>
   <section>
     <h1>回撤买入策略看板</h1>
-    <p class="muted">
-      拖动「回撤阈值」调整买入条件：价格滚动回撤达阈值首买，每再多跌 {{ step }}% 加仓，新高（回撤归 0）清仓兑现。
-    </p>
 
+    <!-- 参数表单（克隆 MA120：.form-card + 两行 .form-row + 折叠高级区 + button.primary） -->
     <div class="form-card">
       <div class="form-row">
-        <label>
+        <label class="symbol-label">
           标的代码
-          <input v-model="symbol" />
+          <div class="symbol-field">
+            <input
+              v-model="symbol"
+              list="symbol-suggestions"
+              placeholder="如 510880 / 510300"
+              @input="onSymbolInput"
+            />
+            <span v-if="symbolHint" class="symbol-hint">{{ symbolHint }}</span>
+          </div>
+          <datalist id="symbol-suggestions">
+            <option v-for="s in suggestions" :key="s.code" :value="s.code">{{ s.name }}</option>
+          </datalist>
         </label>
+
+        <label>
+          卖出方式
+          <select v-model="sellMode">
+            <option value="new_high">新高清仓</option>
+            <option value="none">只买不卖</option>
+            <option value="partial">半仓兑现</option>
+          </select>
+        </label>
+
+        <label>
+          首笔金额（元）
+          <input v-model.number="buyAmount" type="number" min="100" step="100" />
+        </label>
+        <label>
+          加仓金额（元）
+          <input v-model.number="addAmount" type="number" min="100" step="100" />
+        </label>
+      </div>
+
+      <div class="form-row">
         <label>
           起始日期
           <input v-model="startDate" type="date" />
@@ -195,61 +288,73 @@ onUnmounted(() => {
           结束日期
           <input v-model="endDate" type="date" />
         </label>
-        <button :disabled="loading" class="primary" @click="loadSeries">
-          {{ loading ? '加载中…' : '加载行情' }}
-        </button>
-      </div>
-      <div class="form-row">
-        <label class="slider-label">
-          回撤阈值：{{ threshold }}%
-          <input v-model.number="threshold" type="range" min="3" max="50" step="1" />
+        <label>
+          回撤阈值 %
+          <input v-model.number="threshold" type="number" min="1" max="80" step="1" />
         </label>
         <label>
           加仓步长 %
-          <input v-model.number="step" type="number" min="1" max="20" step="1" />
+          <input v-model.number="step" type="number" min="1" max="20" step="1" class="narrow" />
         </label>
-        <label>
-          首买金额
-          <input v-model.number="buyAmount" type="number" min="100" step="100" />
-        </label>
-        <label>
-          加仓金额
-          <input v-model.number="addAmount" type="number" min="100" step="100" />
-        </label>
+        <button :disabled="loading" class="primary" @click="runBacktest">
+          {{ loading ? '回测中…' : '开始回测' }}
+        </button>
+        <button :disabled="saving" class="primary" @click="save">
+          {{ saving ? '保存中…' : '保存' }}
+        </button>
+      </div>
+
+      <!-- 高级参数（预留，本任务暂无可折叠项） -->
+      <div class="advanced">
+        <button class="advanced-toggle" type="button" @click="showAdvanced = !showAdvanced">
+          {{ showAdvanced ? '▾' : '▸' }} 高级参数
+        </button>
+        <div v-if="showAdvanced" class="form-row advanced-row">
+          <p class="muted">暂无可折叠的高级参数；回撤阈值 / 加仓步长已置于主表单。</p>
+        </div>
       </div>
     </div>
 
-    <p v-if="errorMsg" class="err">{{ errorMsg }}</p>
+    <p class="muted hint-line">卖出方式：{{ sellHint }}</p>
 
+    <p v-if="errorMsg" class="err">{{ errorMsg }}</p>
+    <p v-if="savedMsg" class="ok">{{ savedMsg }}</p>
+
+    <!-- 指标卡片（克隆 MA120，含「买卖次数」合并卡） -->
     <div v-if="summary" class="cards">
-      <MetricCard label="买入次数" :value="String(summary.buy_count)" />
-      <MetricCard label="卖出次数" :value="String(summary.sell_count)" />
       <MetricCard label="累计投入" :value="fmt(summary.total_invested)" />
-      <MetricCard label="最终市值" :value="fmt(summary.final_value)" />
-      <MetricCard
-        label="累计收益"
-        :value="fmt(summary.total_pnl)"
-        :color="summary.total_pnl >= 0 ? C_PRICE : C_DD"
-      />
+      <MetricCard label="当前市值" :value="fmt(summary.final_value)" />
+      <MetricCard label="累计收益" :value="fmt(summary.total_pnl)" :color="pnlColor(summary.total_pnl)" />
       <MetricCard
         label="累计收益率"
         :value="fmt(summary.total_return_rate) + '%'"
-        :color="summary.total_return_rate >= 0 ? C_PRICE : C_DD"
+        :color="pnlColor(summary.total_return_rate)"
       />
+      <MetricCard
+        label="年化收益率"
+        :value="fmt(summary.annualized_return) + '%'"
+        :color="pnlColor(summary.annualized_return)"
+      />
+      <MetricCard label="最大回撤" :value="fmt(summary.max_drawdown) + '%'" :color="COLOR_DOWN" />
+      <div class="trade-card">
+        <div class="tc-label">买卖次数</div>
+        <div class="trade-value">
+          <span class="num-buy">{{ summary.buy_count }}</span>
+          <span class="sep">/</span>
+          <span class="num-sell">{{ summary.sell_count }}</span>
+        </div>
+      </div>
     </div>
 
-    <div class="chart-card">
-      <div ref="el" class="chart"></div>
+    <!-- 图表（独立组件，结构与 Ma120Chart 一致） -->
+    <div v-if="chartData" class="chart-card">
+      <h3>{{ chartTitle }}</h3>
+      <DrawboardChart :data="chartData" :threshold="threshold" />
     </div>
   </section>
 </template>
 
 <style scoped>
-.muted {
-  color: var(--text-tertiary);
-  font-size: 13px;
-  margin: 4px 0 0;
-}
 .form-card {
   border: 1px solid var(--border-light);
   border-radius: 8px;
@@ -274,30 +379,35 @@ label {
   color: var(--text-secondary);
   gap: 4px;
 }
-.slider-label {
-  min-width: 240px;
+.symbol-label {
+  min-width: 260px;
 }
-input[type='date'],
-input:not([type]) {
+.symbol-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+input,
+select {
   padding: 8px 10px;
   border: 1px solid var(--input-border);
   border-radius: 6px;
   font-size: 14px;
-  min-width: 140px;
+  min-width: 150px;
   background: var(--input-bg);
   color: var(--text);
 }
-input[type='number'] {
-  padding: 8px 10px;
-  border: 1px solid var(--input-border);
-  border-radius: 6px;
-  font-size: 14px;
-  min-width: 110px;
-  background: var(--input-bg);
-  color: var(--text);
+input.narrow {
+  min-width: 88px;
+  max-width: 100px;
 }
-input[type='range'] {
-  width: 100%;
+.symbol-field input {
+  min-width: 160px;
+}
+.symbol-hint {
+  font-size: 13px;
+  color: var(--hint);
+  white-space: nowrap;
 }
 button.primary {
   background: var(--primary);
@@ -313,26 +423,96 @@ button.primary:disabled {
   background: var(--primary-disabled);
   cursor: not-allowed;
 }
+.advanced {
+  margin-bottom: 12px;
+}
+.advanced-toggle {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.advanced-toggle:hover {
+  color: var(--primary);
+}
+.advanced-row {
+  margin-top: 10px;
+  margin-bottom: 0;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-light);
+}
+.muted {
+  color: var(--text-tertiary);
+  font-size: 13px;
+  margin: 0;
+}
+.hint-line {
+  margin: 0 0 12px;
+}
 .cards {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
   margin: 16px 0;
 }
+.trade-card {
+  flex: 1 1 0;
+  min-width: 150px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: var(--surface);
+}
+.tc-label {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.trade-value {
+  margin-top: 4px;
+  display: flex;
+  align-items: flex-end; /* 下边缘对齐 */
+  gap: 6px;
+  line-height: 1.2;
+}
+.num-buy,
+.num-sell,
+.sep {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+}
+.num-buy {
+  color: #ee6666; /* 买入红，与图表买入标记一致 */
+}
+.num-sell {
+  color: #3a7afe; /* 卖出蓝，与图表卖出标记一致 */
+}
+.sep {
+  color: var(--text-tertiary);
+}
 .chart-card {
   border: 1px solid var(--border-light);
   border-radius: 8px;
-  padding: 12px;
+  padding: 16px 20px;
   background: var(--surface);
 }
-.chart {
-  width: 100%;
-  height: 520px;
+.chart-card h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
 }
 .err {
   color: var(--error-text);
   background: var(--error-bg);
   border: 1px solid var(--error-border);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+.ok {
+  color: #2f8a5f;
+  background: color-mix(in srgb, #3ba272 14%, transparent);
+  border: 1px solid color-mix(in srgb, #3ba272 30%, transparent);
   border-radius: 6px;
   padding: 8px 12px;
 }

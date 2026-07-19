@@ -1,10 +1,11 @@
 """最近回测记录接口（首页用）。
 
-合并 DCA（result_dca_summary）与 MA120（result_ma120_summary）两表，按 end_date 倒序取最近 N 条。
+合并 DCA（result_dca_summary）、MA120（result_ma120_summary）、drawboard（result_drawboard_summary）
+三表，按 end_date 倒序取最近 N 条。
 
-> 两表均无 created_at 列，task_id 为 PK 且编码起止日期。一期以 ``end_date DESC`` 作为
+> 三表均无 created_at 列，task_id 为 PK 且编码起止日期。一期以 ``end_date DESC`` 作为
 > 「记录时间近似值」排序基准（回测结束日越近越靠前），非真正创建时间；精确创建时间需后续给
-> 两表加 created_at 列（见 011 开放问题）。
+> 各表加 created_at 列（见 011 开放问题）。
 """
 
 from datetime import date
@@ -14,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..models.drawboard import ResultDrawboardSummary
 from ..models.result import ResultDcaSummary, ResultMa120Summary
 from ..schemas.common import ApiResponse
 from ..schemas.recent import RecentBacktestItem
@@ -24,7 +26,7 @@ router = APIRouter()
 
 @router.get("/recent", response_model=ApiResponse)
 def list_recent(limit: int = 5, db: Session = Depends(get_db)) -> ApiResponse:
-    """最近 limit 条回测记录（合并 DCA + MA120，按 end_date 倒序）。"""
+    """最近 limit 条回测记录（合并 DCA + MA120 + drawboard，按 end_date 倒序）。"""
     limit = max(1, min(limit, 20))
 
     # (type, task_id, symbol, return_rate, start_date, end_date)
@@ -52,6 +54,18 @@ def list_recent(limit: int = 5, db: Session = Depends(get_db)) -> ApiResponse:
         )
     ).all():
         merged.append(("ma120", r.task_id, r.symbol, float(r.total_return_rate),
+                       r.start_date, r.end_date))
+
+    for r in db.execute(
+        select(
+            ResultDrawboardSummary.task_id,
+            ResultDrawboardSummary.symbol,
+            ResultDrawboardSummary.total_return_rate,
+            ResultDrawboardSummary.start_date,
+            ResultDrawboardSummary.end_date,
+        )
+    ).all():
+        merged.append(("drawboard", r.task_id, r.symbol, float(r.total_return_rate),
                        r.start_date, r.end_date))
 
     # end_date 倒序（同日再按 task_id 稳定排序）

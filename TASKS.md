@@ -21,4 +21,5 @@
 | 015 | [基于最大回撤的买入策略看板](docs/tasks/015-drawdown-buy-strategy.md) | 拖拽回撤阈值定义买点，左轴价格/回撤镜像 + 右轴市值/收益 | ☑ |
 | 016 | [估值温度计 / 估值分位看板](docs/tasks/016-valuation-thermometer.md) | 指数 PE 历史分位 + 温度计仪表（乐咕乐股源） | ☑ |
 | 017 | [ETF 资金流向图表](docs/tasks/017-etf-fund-flow.md) | ETF 份额/北向/主力三信号（Tushare），观察国家队动向 | ☑ |
-| 018 | [事件冲击产业链看板](docs/tasks/018-event-impact-dashboard.md) | 事件→标的池→产业链关系图+波动对比+相关性热力图 | ☐ |
+| 018 | [事件冲击产业链看板](docs/tasks/018-event-impact-dashboard.md) | 事件→标的池→产业链关系图+波动对比+相关性热力图；LLM 智能匹配（OpenAI 兼容） | ☑ |
+| 019 | [drawboard v2：补齐 sell_mode + DB 持久化 + 参数纠正](docs/tasks/019-drawboard-v2.md) | 回撤看板迭代：sell_mode 三模式 + 两表幂等 + 默认值对齐 015 | ☑ |

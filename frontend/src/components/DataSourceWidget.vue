@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   clearTushareToken,
   getDataSourceStatus,
@@ -49,6 +49,9 @@ function open() {
 function close() {
   show.value = false
 }
+
+// 挂载即拉取状态，使钥匙图标颜色（启用=蓝）在页面刷新后立即正确显示
+onMounted(load)
 
 async function onToggle() {
   const next = !enabled.value

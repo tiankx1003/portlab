@@ -1,4 +1,6 @@
-# 015 — 基于最大回撤的买入策略看板（拖拽驱动）
+# 015 — 基于最大回撤的买入策略看板（drawboard，拖拽驱动）
+
+> **命名约定**：本功能实现时定名 **drawboard**（路由 `/api/drawboard`、文件 `drawboard.py`、视图 `DrawboardView.vue`）。本文档早期草稿曾用 `drawdown` 一词指代同一功能，2026-07 校正统一为 `drawboard`，与代码一致。下方涉及文件名/路径/路由处均用 `drawboard`。
 
 ## 目标
 
@@ -38,7 +40,7 @@
 
 ### 1. 计算引擎
 
-新建 `app/services/compute/drawdown.py`。
+新建 `app/services/drawboard.py`（实现时未放进 `compute/` 子目录，直接置于 `services/` 下）。
 
 #### 1.1 滚动最大回撤（核心新计算）
 
@@ -62,7 +64,7 @@ def rolling_drawdown(dates, closes) -> dict[date, Decimal]:
 
 #### 1.2 买入策略（fixed 金字塔分批，复用 007 范式）
 
-`DrawdownParams`：
+`DrawboardParams`：
 
 | 参数 | 说明 | 默认 |
 |------|------|------|
@@ -98,7 +100,7 @@ dd_{symbol}_{start}_{end}_{threshold}_{principal}_{step}_{add_amount}_{sell_mode
 
 ### 2. 数据模型
 
-#### 2.1 `calc_drawdown_backtest` 表（逐日）
+#### 2.1 `calc_drawboard_backtest` 表（逐日）
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -116,7 +118,7 @@ dd_{symbol}_{start}_{end}_{threshold}_{principal}_{step}_{add_amount}_{sell_mode
 | close | DECIMAL(14,4) | 当日收盘（冗余） |
 | benchmark_close | DECIMAL(14,4) | 沪深300当日收盘（冗余） |
 
-#### 2.2 `result_drawdown_summary` 表
+#### 2.2 `result_drawboard_summary` 表
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -130,35 +132,34 @@ dd_{symbol}_{start}_{end}_{threshold}_{principal}_{step}_{add_amount}_{sell_mode
 | start_date / end_date | DATE | |
 | total_invested / final_value / total_pnl / total_return_rate / annualized_return / max_drawdown / buy_count / sell_count | | 与 007 summary 同构 |
 
-新建 `backend/app/models/drawdown.py`，在 `models/__init__.py` 注册。
+新建 `backend/app/models/drawboard.py`，在 `models/__init__.py` 注册。
 
 ### 3. SQL Migration
 
-- **`mysql/init/06_drawdown.sql`**：两张表 `CREATE TABLE IF NOT EXISTS`。
-- **`mysql/migrations/007_drawdown.sql`**：同样两张表，已部署库用。
+- **`mysql/init/0X_drawboard.sql`**：两张表 `CREATE TABLE IF NOT EXISTS`。
+- **`mysql/migrations/0XX_drawboard.sql`**：同样两张表，已部署库用。
 
 ### 4. Schema
 
-新建 `backend/app/schemas/drawdown.py`：
+新建 `backend/app/schemas/drawboard.py`：
 
-- `DrawdownRequest`：symbol、start_date、end_date、threshold、principal、step、add_amount、sell_mode（校验：threshold>0、principal>0、step>0、add_amount>0）
-- `DrawdownCreated`：task_id
-- `DrawdownChartData`：dates[]、close[]、drawdown[]（负值）、market_value[]、return_rate[]、benchmark_close[]、signals[]、buy_points[]、sell_points[]
-- `DrawdownSummaryData`：与 summary 表对应 + symbol_name
+- `DrawboardRequest`：symbol、start_date、end_date、threshold、principal、step、add_amount、sell_mode（校验：threshold>0、principal>0、step>0、add_amount>0）
+- `DrawboardCreated`：task_id
+- `DrawboardChartData`：dates[]、close[]、drawdown[]（负值）、market_value[]、return_rate[]、benchmark_close[]、signals[]、buy_points[]、sell_points[]
+- `DrawboardSummaryData`：与 summary 表对应 + symbol_name
 
 ### 5. API 路由
 
-新建 `backend/app/api/drawdown.py`，路由前缀 `/api/backtest/drawdown`（与 `/api/backtest/dca`、`/api/backtest/ma120` 并列）：
+新建 `backend/app/api/drawboard.py`，路由前缀 `/api/drawboard`（实现时未并入 `/api/backtest`，独立成 `/api/drawboard`）：
 
 | 接口 | 方法 | 说明 |
 |------|------|------|
-| `/api/backtest/drawdown` | POST | 提交参数 → ensure_price_data 补数据 → 计算 → 返回 task_id |
-| `/api/backtest/drawdown/{task_id}/chart` | GET | 返回 DrawdownChartData |
-| `/api/backtest/drawdown/{task_id}/summary` | GET | 返回 DrawdownSummaryData |
+| `/api/drawboard/backtest` | GET | 实时重算（实现时采用无状态 GET，非 POST） |
+| `/api/drawboard/series` | GET | 行情 + 回撤序列（图表底图） |
 
 **业务规则**（复用 007 范式）：
-- 先查 `result_drawdown_summary` 命中则直接返回 task_id（幂等）。
-- 否则 `ensure_price_data` 补拉行情（含标的与沪深300基准）→ 计算 → 写两张表 → 返回 task_id。
+- **实现说明**：v1 交付时简化为**无状态 GET**（每次请求重算，不落库、无 task_id 幂等）。原设计的 POST 创建 + 命中缓存 + 写表模式**未实现**，见文末「实现偏离记录」与任务 019。
+- `ensure_price_data` 补拉行情（含标的与沪深300基准）。
 - 返回统一 `ApiResponse`。
 
 ### 6. 路由注册
@@ -166,19 +167,19 @@ dd_{symbol}_{start}_{end}_{threshold}_{principal}_{step}_{add_amount}_{sell_mode
 `backend/app/main.py`：
 
 ```python
-from .api import ..., drawdown, ...
-app.include_router(drawdown.router, prefix="/api/backtest", tags=["backtest"])
+from .api import ..., drawboard, ...
+app.include_router(drawboard.router, prefix="/api/drawboard", tags=["drawboard"])
 ```
 
 ### 验收标准（后端）
 
-- [ ] `rolling_drawdown` 正确计算逐日回撤（峰值更新、回撤取负、与峰值重合日为 0）
+- [ ] 滚动回撤正确计算（峰值更新、回撤取负、与峰值重合日为 0；v1 内联于 `drawboard.py`，未抽到 `compute/common`）
 - [ ] 金字塔分批买入逻辑正确：首次达阈值买入 A，每再深 step 加仓 m
-- [ ] 卖出方式（none/new_high/partial）各自正确
-- [ ] 计算结果写入 `calc_drawdown_backtest` 与 `result_drawdown_summary`
-- [ ] 相同参数重复执行幂等（先删后写 / 命中返回）
+- [ ] ~~卖出方式（none/new_high/partial）各自正确~~ → **v1 仅实现 new_high 硬编码，none/partial 未实现**（见偏离记录）
+- [ ] ~~计算结果写入 `calc_drawboard_backtest` 与 `result_drawboard_summary`~~ → **v1 未建表、未持久化**
+- [ ] ~~相同参数重复执行幂等~~ → **v1 无 task_id、每次重算**
 - [ ] 行情与基准复用 `ensure_price_data`，缺失时补拉
-- [ ] 三个接口返回统一 `ApiResponse`，Swagger UI 可测试
+- [ ] 返回统一 `ApiResponse`，Swagger UI 可测试
 
 ---
 
@@ -188,17 +189,18 @@ app.include_router(drawdown.router, prefix="/api/backtest", tags=["backtest"])
 
 `frontend/src/api/index.ts` 新增：
 
-- `createDrawdown(params)` → POST `/api/backtest/drawdown`
-- `getDrawdownChart(taskId)` → GET `/api/backtest/drawdown/{id}/chart`
-- `getDrawdownSummary(taskId)` → GET `/api/backtest/drawdown/{id}/summary`
-- 类型 `DrawdownParams`、`DrawdownChartData`、`DrawdownSummaryData`
+- `getDrawdownSeries(symbol, start, end)` → GET `/api/drawboard/series`
+- `runDrawdownBacktest(params)` → GET `/api/drawboard/backtest`（实时重算）
+- 类型 `DrawdownSeries`、`DrawPoint`、`DrawSummary`、`DrawBacktestResult`
+
+> v1 未实现 POST 创建 / `getDrawdownChart` / `getDrawdownSummary`（无 task_id 体系）。
 
 ### 2. 路由与导航
 
-- `router/index.ts` 新增 `{ path: '/drawdown', name: 'drawdown', component: DrawdownView }`
-- `App.vue` `nav-links` 新增 `<RouterLink to="/drawdown">回撤买入</RouterLink>`，排在「资金流向」之后。
+- `router/index.ts` 新增 `{ path: '/drawboard', name: 'drawboard', component: DrawboardView }`
+- `App.vue` `nav-links` 新增 `<RouterLink to="/drawboard">回撤看板</RouterLink>`。
 
-### 3. 页面（`frontend/src/views/DrawdownView.vue`）
+### 3. 页面（`frontend/src/views/DrawboardView.vue`）
 
 **布局（控件栏精简 + 大图主体）：**
 
@@ -226,7 +228,9 @@ app.include_router(drawdown.router, prefix="/api/backtest", tags=["backtest"])
 - 卖出方式：单选 none/new_high/partial。
 - 「运行」按钮：用当前表单参数 + **当前拖拽阈值**提交后端。
 
-### 4. 图表组件（`frontend/src/components/DrawdownChart.vue`）
+### 4. 图表组件
+
+> v1 未拆分独立图表组件，回撤图直接内联于 `DrawboardView.vue`（用 echarts.init）。
 
 **克隆 `Ma120Chart.vue` 范式**，关键差异：
 
@@ -251,7 +255,8 @@ graphic: [{
 ```
 
 - **拖动时**：前端仅移动线 + 实时显示「当前阈值：-T%」（tooltip 或角标）。
-- **松手时**（`ondragend`）：触发查询——把新阈值 T（绝对值）连同表单资金参数调 `createDrawdown`，返回后刷新买点、市值、收益曲线。
+- **松手时**（`ondragend`）：触发查询——把新阈值 T（绝对值）连同表单资金参数调 `runDrawdownBacktest`，返回后刷新买点、市值、收益曲线。
+  > v1 实现改用滑块控件（`<input type="range" min=3 max=50>`）+ watch 松手重算，未实现 graphic 拖拽线（见偏离记录）。
 - 默认阈值 = 表单 threshold（初次进入或表单运行时设定）。
 
 > 因「松手调后端」，拖拽不依赖前端计算引擎，复用 007 后端范式即可。
@@ -307,17 +312,41 @@ graphic: [{
 |------|------|----------|
 | 行情（512890 等） | `raw_price_daily` | `ensure_price_data` 补拉 |
 | 基准（沪深300=510300） | `raw_price_daily` | 复用 `benchmark.py` 计算 |
-| 滚动回撤计算 | `compute/common.rolling_drawdown`（新增） | 公共函数，引擎与 API 共用 |
+| 滚动回撤计算 | 内联于 `drawboard.py`（v1 未抽公共函数） | `compute/common.rolling_drawdown` 待补（见 019） |
 | 资金模式（fixed 金字塔） | 007 MA120 fixed 范式 | 逻辑同构，参数化复用 |
-| task_id 幂等 | 007 范式 | 命中返回 / 先删后写 |
+| task_id 幂等 | 007 范式 | **v1 未实现**，见 019 |
 
-> **关键原则**：不新建行情表，全部从 `raw_price_daily` 读；计算结果落 `calc_drawdown_backtest` + `result_drawdown_summary`（与 DCA/MA120 同构隔离）。
+> **关键原则**：不新建行情表，全部从 `raw_price_daily` 读；计算结果**v1 未落库**，目标落 `calc_drawboard_backtest` + `result_drawboard_summary`（见 019）。
+
+---
+
+## 实现偏离记录（v1 交付物快照，2026-07 评审）
+
+本节诚实记录 015 v1 实际交付与上方设计的差异，作为已交付版本的历史快照。**修正这些偏离是 [019 — drawboard v2](./019-drawboard-v2.md) 的任务范围，不在本任务内回改。**
+
+| 维度 | 本文档设计 | v1 实际交付 | 影响 |
+|------|-----------|-------------|------|
+| **命名** | drawdown | **drawboard**（路由 `/api/drawboard`、文件 `drawboard.py`、视图 `DrawboardView.vue`） | 已于 2026-07 校正本文档术语对齐代码；代码命名保留 |
+| **sell_mode** | none/new_high/partial 三模式，**默认 none** | **硬编码 new_high**，无开关、无参数 | 无法只买不卖（用户最初设想丢失）；见 019 |
+| **DB 持久化** | `calc_drawboard_backtest` + `result_drawboard_summary` 两张表 | **未建表**，纯无状态每次重算 | 结果无法被首页「最近记录」引用 |
+| **task_id 幂等** | `make_task_id` 命中缓存 | **无 task_id**，每次重算 | 重复参数无缓存收益 |
+| **参数默认值** | threshold=20, step=5, add_amount=5000 | threshold=**10**, step=**2**, add_amount=**10000** | 偏离设计值 |
+| **起始日期** | 近 3 年（动态） | 写死 `2022-01-01` | 不随时间滚动 |
+| **annualized_return** | 复用 `common.annualized_return`/`xirr` | **未计算** | 缺年化指标 |
+| **max_drawdown** | 复用 `common.max_drawdown` | **未计算**（虽算了滚动回撤序列，但未汇总） | 缺最大回撤汇总 |
+| **拖拽交互** | ECharts `graphic` 可拖阈值线 | 改用滑块 `<input type=range>` + watch | 交互形态简化，未实现图形拖拽 |
+| **图表组件** | 独立 `DrawdownChart.vue` | 内联于 `DrawboardView.vue` | 未拆分 |
+| **benchmark** | 复用 `services/benchmark.py` | 本地重复定义 `BENCHMARK_SYMBOL="510300"` | 代码重复 |
+| **rolling_drawdown** | 抽到 `compute/common.py` 公共函数 | 内联于 service | 未复用 |
+
+> **结论**：v1 是可用的 MVP（拖滑块实时看回撤与买点），但 sell_mode 丢失、无持久化、参数偏离三项是与设计/用户初衷的主要差距，由 019 系统性补齐。
 
 ---
 
 ## 开放问题（后续迭代）
 
 - [ ] **拖动实时预览**：一期松手调后端；后续可把价格序列传前端，拖动时实时本地预览买点（不调后端），松手才落库。
+  > **更新（019）**：019 决定**放弃拖拽/滑块交互**，回撤阈值改为输入框 + 「开始回测」按钮显式触发，与 MA120 看板交互一致。本条「拖动实时预览」不再作为近期方向。
 - [ ] **本金上限**：一期假设无限资金；后续加 `max_capital`，用尽停买。
 - [ ] **回撤窗口限定**：一期从区间起点算滚动峰值；后续支持「近 N 日峰值」滚动窗口。
 - [ ] **阈值预设快捷**：一键 -15% / -20% / -30% 常用阈值按钮。

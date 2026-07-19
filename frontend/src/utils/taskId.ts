@@ -99,3 +99,38 @@ export function parseMa120TaskId(taskId: string): Ma120TaskParts | null {
     batchSellStep: Number(batchSellStep),
   }
 }
+
+export interface DrawboardTaskParts {
+  symbol: string
+  startDate: string
+  endDate: string
+  threshold: number
+  step: number
+  buyAmount: number
+  addAmount: number
+  sellMode: 'none' | 'new_high' | 'partial'
+}
+
+/**
+ * db_{symbol}_{start}_{end}_{threshold}_{step}_{buy_amount}_{add_amount}_{sell_mode}
+ * 与后端 services/drawboard.make_task_id 一致；非 akshare 源末尾追加 _{source}。
+ */
+export function parseDrawboardTaskId(taskId: string): DrawboardTaskParts | null {
+  const parts = stripSourceSuffix(taskId.split('_'))
+  if (parts.length < 9 || parts[0] !== 'db') return null
+  const [, symbol, start, end, threshold, step, buyAmount, addAmount, sellMode] = parts
+  if (!['none', 'new_high', 'partial'].includes(sellMode)) return null
+  const sd = toIsoDate(start)
+  const ed = toIsoDate(end)
+  if (!sd || !ed) return null
+  return {
+    symbol,
+    startDate: sd,
+    endDate: ed,
+    threshold: Number(threshold),
+    step: Number(step),
+    buyAmount: Number(buyAmount),
+    addAmount: Number(addAmount),
+    sellMode: sellMode as DrawboardTaskParts['sellMode'],
+  }
+}

@@ -18,6 +18,7 @@ from .api import (
     datasource,
     drawboard,
     etf_flow,
+    event_dashboard,
     feedback,
     health,
     ma120,
@@ -85,6 +86,10 @@ def _seed_release_notes_if_empty(db) -> None:
         text(
             "INSERT INTO release_notes (title, type, detail, released_at, "
             "is_deleted, created_at) VALUES "
+            "('事件冲击产业链看板', 'feature', "
+            "'事件→标的池→产业链关系图 + 波动对比 + 相关性热力图；"
+            "LLM 智能匹配（OpenAI 兼容协议）', "
+            "'2026-07-19', 0, UTC_TIMESTAMP()), "
             "('估值温度计 / 估值分位看板', 'feature', "
             "'指数 PE 历史分位 + 温度计仪表，回答「现在贵不贵」"
             "（沪深300/中证500/中证1000/上证50/创业板指）', "
@@ -145,10 +150,107 @@ def _ensure_py_mini_racer_lib() -> None:
         logger.warning("py_mini_racer 软链自愈失败（估值接口将降级）: %s", e)
 
 
+def _ensure_event_tables() -> None:
+    """启动自愈：事件冲击产业链看板（018）五张表 + llm_config 默认行 + 内置主题。
+
+    - CREATE TABLE IF NOT EXISTS 语义建表（幂等；覆盖未手动执行 init/08 或 migrations/009 的场景）。
+    - ``llm_config`` 确保 ``id=1`` 默认行（enabled=0），已存在不覆盖。
+    - 内置主题（id 1~3）+ 成分股样例空表时预置（fresh 由 init/08 提供；此处兜底已部署库）。
+    - 若 ``.env`` 配置了 LLM 三项而 DB 行为空，seed 进 DB 并启用（headless 即时生效）。
+    """
+    try:
+        from .database import Base, SessionLocal, engine
+        from .models.event import Event
+        from .models.llm_config import LlmConfig
+        from .models.theme import EventStock, Theme, ThemeStock
+        from .services.matcher import bootstrap_llm_config_from_env
+
+        Base.metadata.create_all(
+            engine,
+            tables=[
+                Event.__table__,
+                Theme.__table__,
+                ThemeStock.__table__,
+                EventStock.__table__,
+                LlmConfig.__table__,
+            ],
+        )
+        with SessionLocal() as db:
+            db.execute(
+                text(
+                    "INSERT INTO llm_config (id, api_base, api_key, model, enabled) "
+                    "VALUES (1, NULL, NULL, NULL, 0) "
+                    "ON DUPLICATE KEY UPDATE id = id"
+                )
+            )
+            _seed_builtin_themes(db)
+            db.commit()
+            bootstrap_llm_config_from_env(db)
+    except Exception as e:  # noqa: BLE001 - 自愈失败不阻断启动
+        logger.warning("启动自愈（事件看板表）失败: %s", e)
+
+
+def _ensure_drawboard_tables() -> None:
+    """启动自愈：回撤买入策略看板（019）两张表（calc_drawboard_backtest + result_drawboard_summary）。
+
+    - CREATE TABLE IF NOT EXISTS 语义建表（幂等；覆盖未手动执行 init/09 或 migrations/010 的场景）。
+    - 与 MA120/DCA 不同，这里补自愈以兜底裸机开发；fresh 安装由 init/09 提供同两表。
+    """
+    try:
+        from .database import Base, engine
+        from .models.drawboard import CalcDrawboardBacktest, ResultDrawboardSummary
+
+        Base.metadata.create_all(
+            engine,
+            tables=[
+                CalcDrawboardBacktest.__table__,
+                ResultDrawboardSummary.__table__,
+            ],
+        )
+    except Exception as e:  # noqa: BLE001 - 自愈失败不阻断启动
+        logger.warning("启动自愈（回撤看板表）失败: %s", e)
+
+
+def _seed_builtin_themes(db) -> None:
+    """内置主题（id 1~3）+ 成分股样例空表时预置（幂等）。与 init/08 同源。"""
+    from sqlalchemy import func, select
+
+    from .models.theme import Theme
+
+    cnt = db.execute(select(func.count()).select_from(Theme)).scalar() or 0
+    if cnt > 0:
+        return
+    db.execute(
+        text(
+            "INSERT INTO theme (id, name, keywords, is_builtin) VALUES "
+            "(1, '新茶饮产业链', '新茶饮,奶茶,花茶,茶饮,茉莉花,茶叶', 1), "
+            "(2, '香料产业链',   '香料,香精,食用香精,提取,茉莉,花香', 1), "
+            "(3, '农业种植',     '农业,种植,种子,农产品,花卉,经济作物', 1) "
+            "ON DUPLICATE KEY UPDATE id = id"
+        )
+    )
+    db.execute(
+        text(
+            "INSERT IGNORE INTO theme_stock (theme_id, symbol, chain_role, weight) VALUES "
+            "(1,'600598','upstream',1.00),(1,'000998','upstream',0.80),"
+            "(1,'002568','midstream',1.00),(1,'600872','midstream',0.70),"
+            "(1,'603288','downstream',1.00),(1,'603027','downstream',0.60),"
+            "(2,'600251','upstream',1.00),(2,'600598','upstream',0.70),"
+            "(2,'002568','midstream',1.00),(2,'600872','midstream',0.70),"
+            "(2,'603288','downstream',0.80),(2,'600887','downstream',0.50),"
+            "(3,'000998','upstream',1.00),(3,'600598','upstream',1.00),"
+            "(3,'600108','upstream',0.70),(3,'000061','midstream',1.00),"
+            "(3,'600887','downstream',0.80),(3,'603288','downstream',0.60)"
+        )
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _ensure_py_mini_racer_lib()
     _ensure_data_source_config()
+    _ensure_event_tables()
+    _ensure_drawboard_tables()
     # 启动时后台预热 A 股标的目录，使名称解析（图表标题）稳定可用
     threading.Thread(target=symbol_catalog.warmup, daemon=True).start()
     yield
@@ -192,3 +294,4 @@ app.include_router(roadmap.router, prefix="/api/roadmap", tags=["roadmap"])  # /
 app.include_router(drawboard.router, prefix="/api/drawboard", tags=["drawboard"])
 app.include_router(valuation.router, prefix="/api/valuation", tags=["valuation"])  # /api/valuation
 app.include_router(etf_flow.router, prefix="/api/etf-flow", tags=["etf-flow"])  # /api/etf-flow
+app.include_router(event_dashboard.router, prefix="/api/event", tags=["event"])  # /api/event

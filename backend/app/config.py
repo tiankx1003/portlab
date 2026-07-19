@@ -19,5 +19,10 @@ class Settings(BaseSettings):
     # Tushare Pro Token（环境变量兜底；优先级低于数据库 data_source_config.tushare_token）
     tushare_token: str = ""
 
+    # LLM 连接（事件看板智能匹配用；环境变量兜底，优先级低于数据库 llm_config）
+    llm_api_base: str = ""
+    llm_api_key: str = ""
+    llm_model: str = ""
+
 
 settings = Settings()

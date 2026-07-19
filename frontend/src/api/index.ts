@@ -237,7 +237,7 @@ export async function toggleTushare(enabled: boolean): Promise<ApiResponse<DataS
 // ---- home: recent backtests ----
 export interface RecentBacktestItem {
   task_id: string
-  type: 'dca' | 'ma120'
+  type: 'dca' | 'ma120' | 'drawboard'
   symbol: string
   symbol_name: string
   return_rate: number
@@ -308,7 +308,9 @@ export async function getRoadmap(): Promise<ApiResponse<Roadmap>> {
   return res.data
 }
 
-// ---- drawboard: 基于最大回撤买入策略看板（015）----
+// ---- drawboard: 基于最大回撤买入策略看板（015 → 019 v2）----
+export type DrawSellMode = 'none' | 'new_high' | 'partial'
+
 export interface DrawdownSeries {
   dates: string[]
   prices: number[]
@@ -329,17 +331,45 @@ export interface DrawSummary {
   final_value: number
   total_pnl: number
   total_return_rate: number
+  annualized_return: number
+  max_drawdown: number
   buy_count: number
   sell_count: number
+  sell_mode: DrawSellMode
 }
 
-export interface DrawBacktestResult {
+// 图表数据（实时 GET /backtest 与 DB GET /{task_id}/chart 同构，对齐 Ma120ChartData）
+export interface DrawboardChartData {
   dates: string[]
   market_values: number[]
+  total_cost: number[]
+  pnl: number[]
   return_rates: number[]
+  close_prices: number[]
+  drawdown: number[]
+  holding: number[]
+  signals: string[]
   buy_points: DrawPoint[]
   sell_points: DrawPoint[]
+  benchmark_returns: (number | null)[]
+  benchmark_name: string
+  symbol_name: string
+}
+
+// 实时 GET /backtest = 图表数据 + 汇总
+export interface DrawBacktestResult extends DrawboardChartData {
   summary: DrawSummary
+}
+
+export interface DrawboardParams {
+  symbol: string
+  start_date: string
+  end_date: string
+  threshold: number
+  step: number
+  buy_amount: number
+  add_amount: number
+  sell_mode: DrawSellMode
 }
 
 export async function getDrawdownSeries(
@@ -361,10 +391,33 @@ export async function runDrawdownBacktest(params: {
   step: number
   buy_amount: number
   add_amount: number
+  sell_mode: DrawSellMode
 }): Promise<ApiResponse<DrawBacktestResult>> {
   const res = await http.get<ApiResponse<DrawBacktestResult>>('/drawboard/backtest', {
     params,
   })
+  return res.data
+}
+
+/** 保存落库（POST /save）：命中缓存或计算 → 返回 task_id。 */
+export async function saveDrawboard(
+  params: DrawboardParams,
+): Promise<ApiResponse<{ task_id: string }>> {
+  const res = await http.post<ApiResponse<{ task_id: string }>>('/drawboard/save', params)
+  return res.data
+}
+
+/** 读 calc_drawboard_backtest 逐日（图表数据，结构与实时 GET 一致）。 */
+export async function getDrawboardChart(
+  taskId: string,
+): Promise<ApiResponse<DrawboardChartData>> {
+  const res = await http.get<ApiResponse<DrawboardChartData>>(`/drawboard/${taskId}/chart`)
+  return res.data
+}
+
+/** 读 result_drawboard_summary 汇总。 */
+export async function getDrawboardSummary(taskId: string): Promise<ApiResponse<DrawSummary>> {
+  const res = await http.get<ApiResponse<DrawSummary>>(`/drawboard/${taskId}/summary`)
   return res.data
 }
 
@@ -411,6 +464,172 @@ export interface ValuationData {
 
 export async function getValuation(symbol: string): Promise<ApiResponse<ValuationData>> {
   const res = await http.get<ApiResponse<ValuationData>>('/valuation', { params: { symbol } })
+  return res.data
+}
+
+// ---- event dashboard: 事件冲击产业链看板（018）----
+export type ChainRole = 'upstream' | 'midstream' | 'downstream'
+export type Relevance = 'high' | 'medium' | 'low' | 'none'
+
+export interface ThemeBrief {
+  id: number
+  name: string
+  is_builtin: boolean
+  keywords: string | null
+  stock_count: number
+}
+export interface ThemeStockItem {
+  symbol: string
+  name: string
+  chain_role: ChainRole
+  weight: number
+}
+export interface ThemeDetail {
+  id: number
+  name: string
+  is_builtin: boolean
+  keywords: string | null
+  stocks: ThemeStockItem[]
+}
+export interface LlmConfigStatus {
+  enabled: boolean
+  api_base: string
+  api_key_masked: string
+  model: string
+  configured: boolean
+  test?: string | null
+}
+export interface MatchedStock {
+  symbol: string
+  name: string
+  chain_role: ChainRole
+  weight: number
+  relevance: Relevance
+}
+export interface ConceptStock {
+  symbol: string
+  name: string
+}
+export interface EventStockOut {
+  symbol: string
+  name: string
+  chain_role: ChainRole
+}
+export interface EventBrief {
+  id: number
+  name: string
+  event_date: string
+  description: string | null
+  theme_id: number | null
+  stocks: EventStockOut[]
+}
+export interface EventStockInput {
+  symbol: string
+  chain_role: ChainRole
+}
+export interface SymbolInfo {
+  symbol: string
+  name: string
+  chain_role: ChainRole
+}
+export interface RankingItem {
+  symbol: string
+  name: string
+  change_pct: number
+  chain_role: ChainRole
+}
+export interface WindowReturnSeries {
+  dates: string[]
+  returns: number[]
+}
+export interface ChainGroups {
+  upstream: string[]
+  midstream: string[]
+  downstream: string[]
+}
+export interface EventImpactData {
+  event_id: number
+  event_name: string
+  event_date: string
+  before: number
+  after: number
+  symbols_info: SymbolInfo[]
+  window_returns: Record<string, WindowReturnSeries>
+  benchmark_symbol: string | null
+  benchmark_name: string | null
+  benchmark_series: WindowReturnSeries | null
+  ranking: RankingItem[]
+  correlation_symbols: string[]
+  correlation_matrix: number[][]
+  chain_groups: ChainGroups
+  missing: string[]
+}
+
+export async function listThemes(): Promise<ApiResponse<ThemeBrief[]>> {
+  const res = await http.get<ApiResponse<ThemeBrief[]>>('/event/themes')
+  return res.data
+}
+export async function getTheme(id: number): Promise<ApiResponse<ThemeDetail>> {
+  const res = await http.get<ApiResponse<ThemeDetail>>(`/event/themes/${id}`)
+  return res.data
+}
+export async function getLlmConfig(): Promise<ApiResponse<LlmConfigStatus>> {
+  const res = await http.get<ApiResponse<LlmConfigStatus>>('/event/llm-config')
+  return res.data
+}
+export async function updateLlmConfig(
+  body: Partial<{ api_base: string; api_key: string; model: string; enabled: boolean }> & {
+    test?: boolean
+  },
+): Promise<ApiResponse<LlmConfigStatus>> {
+  const test = body.test ? { test: 'true' } : undefined
+  const { test: _omit, ...payload } = body
+  const res = await http.put<ApiResponse<LlmConfigStatus>>('/event/llm-config', payload, {
+    params: test,
+  })
+  return res.data
+}
+export async function smartMatch(body: {
+  event_name: string
+  description?: string | null
+}): Promise<ApiResponse<MatchedStock[]>> {
+  const res = await http.post<ApiResponse<MatchedStock[]>>('/event/smart-match', body)
+  return res.data
+}
+export async function listConceptStocks(
+  concept: string,
+): Promise<ApiResponse<ConceptStock[]>> {
+  const res = await http.get<ApiResponse<ConceptStock[]>>('/event/concept-stocks', {
+    params: { concept },
+  })
+  return res.data
+}
+export async function createEvent(body: {
+  name: string
+  event_date: string
+  description?: string | null
+  theme_id?: number | null
+  stocks?: EventStockInput[]
+}): Promise<ApiResponse<EventBrief>> {
+  const res = await http.post<ApiResponse<EventBrief>>('/event', body)
+  return res.data
+}
+export async function getEvent(id: number): Promise<ApiResponse<EventBrief>> {
+  const res = await http.get<ApiResponse<EventBrief>>(`/event/${id}`)
+  return res.data
+}
+export async function updateEventStocks(
+  id: number,
+  stocks: EventStockInput[],
+): Promise<ApiResponse<EventBrief>> {
+  const res = await http.put<ApiResponse<EventBrief>>(`/event/${id}/stocks`, { stocks })
+  return res.data
+}
+export async function getEventImpact(
+  id: number,
+  params: { before: number; after: number },
+): Promise<ApiResponse<EventImpactData>> {
+  const res = await http.get<ApiResponse<EventImpactData>>(`/event/${id}/impact`, { params })
   return res.data
 }
 

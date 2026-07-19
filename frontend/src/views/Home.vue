@@ -49,7 +49,7 @@ const notes = ref<ReleaseNoteItem[]>([])
 // ---- Roadmap ----
 const roadmap = ref<Roadmap | null>(null)
 
-const TYPE_LABEL: Record<string, string> = { dca: 'DCA', ma120: 'MA120' }
+const TYPE_LABEL: Record<string, string> = { dca: 'DCA', ma120: 'MA120', drawboard: '回撤' }
 const NOTE_TYPE: Record<ReleaseNoteType, { label: string; cls: string }> = {
   feature: { label: '新功能', cls: 't-feature' },
   bugfix: { label: '修复', cls: 't-bugfix' },
@@ -147,8 +147,14 @@ async function refreshMarket() {
 }
 
 function openBacktest(item: RecentBacktestItem) {
-  const path = item.type === 'ma120' ? '/ma120' : '/backtest'
+  const path = item.type === 'ma120' ? '/ma120' : item.type === 'drawboard' ? '/drawboard' : '/backtest'
   router.push({ path, query: { task: item.task_id } })
+}
+
+function chipClass(type: string): string {
+  if (type === 'ma120') return 'c-ma120'
+  if (type === 'drawboard') return 'c-drawboard'
+  return 'c-dca'
 }
 
 function gotoTools(path: string) {
@@ -217,18 +223,29 @@ onMounted(loadAll)
           <span v-if="market?.as_of" class="muted">数据截至 {{ market.as_of }}</span>
           <button
             class="refresh-btn"
+            :class="{ spinning: refreshing }"
             type="button"
             :disabled="refreshing || !market"
+            :title="refreshing ? '刷新中…' : '刷新行情'"
+            aria-label="刷新行情"
             @click="refreshMarket"
           >
-            {{ refreshing ? '刷新中…' : '🔄 刷新行情' }}
+            <svg class="refresh-icon" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path
+                d="M512.020978 256.514211l0-95.771227-127.737266 127.695311 127.737266 127.780245 0-95.834672c105.369839 0 191.585433 86.214571 191.585433 191.605899 0 31.902594-9.556657 63.848167-22.325471 89.408309l47.864124 47.88459c22.367427-41.521672 38.310537-86.214571 38.310537-137.293923C767.454578 371.482663 652.528082 256.514211 512.020978 256.514211M512.020978 703.5752c-105.411795 0-191.585433-86.215594-191.585433-191.585433 0-31.924083 9.556657-63.868633 22.325471-89.428775l-47.864124-47.864124c-22.367427 41.521672-38.352493 86.194104-38.352493 137.292899 0 140.507104 114.968451 255.454066 255.475556 255.454066l0 95.813183 127.737266-127.7168-127.737266-127.780245L512.019954 703.5752z"
+                fill="currentColor"
+              />
+            </svg>
           </button>
         </div>
       </div>
       <p v-if="marketErr" class="err">{{ marketErr }}</p>
       <div v-if="market" class="market-grid">
         <div v-for="it in presetItems" :key="it.symbol" class="market-card">
-          <div class="market-name">{{ it.name }}</div>
+          <div class="market-head">
+            <span class="market-name">{{ it.name }}</span>
+            <span class="market-code">{{ it.symbol }}</span>
+          </div>
           <div class="market-price">{{ it.latest_close.toFixed(3) }}</div>
           <div class="market-chg" :class="rateClass(it.change_pct ?? 0)">
             {{ it.change_pct != null ? (it.change_pct > 0 ? '+' : '') + it.change_pct.toFixed(2) + '%' : '—' }}
@@ -238,34 +255,38 @@ onMounted(loadAll)
           </svg>
         </div>
         <div v-for="sym in presetMissing" :key="'m-' + sym" class="market-card market-missing">
-          <div class="market-name">{{ sym }}</div>
-          <div class="market-price muted">暂无行情</div>
+          <div class="market-head">
+            <span class="market-name muted">暂无行情</span>
+            <span class="market-code">{{ sym }}</span>
+          </div>
           <div class="market-hint">点「刷新行情」拉取</div>
         </div>
-        <!-- 第 4 格：手动输入代码 -->
+        <!-- 第 4 格：左上角名称、右上角代码（可编辑输入框） -->
         <div class="market-card market-custom">
-          <input
-            v-model="customInput"
-            class="market-input"
-            type="text"
-            maxlength="10"
-            placeholder="输入代码，如 510050"
-            @keyup.enter="applyCustom"
-          />
-          <template v-if="customSymbol">
-            <template v-if="customItem">
-              <div class="market-name">{{ customItem.name }}</div>
-              <div class="market-price">{{ customItem.latest_close.toFixed(3) }}</div>
-              <div class="market-chg" :class="rateClass(customItem.change_pct ?? 0)">
-                {{ customItem.change_pct != null ? (customItem.change_pct > 0 ? '+' : '') + customItem.change_pct.toFixed(2) + '%' : '—' }}
-              </div>
-              <svg class="spark" viewBox="0 0 100 28" preserveAspectRatio="none" aria-hidden="true">
-                <path :d="sparkPath(customItem.sparkline)" :class="rateClass(customItem.change_pct ?? 0)" fill="none" stroke-width="1.5" />
-              </svg>
-            </template>
-            <div v-else class="market-hint">暂无行情，点「刷新行情」拉取</div>
+          <div class="market-head">
+            <span class="market-name">{{ customItem?.name || customSymbol || '自定义' }}</span>
+            <input
+              v-model="customInput"
+              class="market-code-input"
+              type="text"
+              maxlength="10"
+              placeholder="代码"
+              title="输入代码后回车"
+              @keyup.enter="applyCustom"
+            />
+          </div>
+          <template v-if="customItem">
+            <div class="market-price">{{ customItem.latest_close.toFixed(3) }}</div>
+            <div class="market-chg" :class="rateClass(customItem.change_pct ?? 0)">
+              {{ customItem.change_pct != null ? (customItem.change_pct > 0 ? '+' : '') + customItem.change_pct.toFixed(2) + '%' : '—' }}
+            </div>
+            <svg class="spark" viewBox="0 0 100 28" preserveAspectRatio="none" aria-hidden="true">
+              <path :d="sparkPath(customItem.sparkline)" :class="rateClass(customItem.change_pct ?? 0)" fill="none" stroke-width="1.5" />
+            </svg>
           </template>
-          <div v-else class="market-hint">输入代码后回车查看</div>
+          <div v-else class="market-hint">
+            {{ customSymbol ? '暂无行情，点「刷新行情」拉取' : '输入代码回车查看' }}
+          </div>
         </div>
       </div>
     </section>
@@ -281,7 +302,7 @@ onMounted(loadAll)
       </div>
       <ul v-else class="recent-list">
         <li v-for="it in recent" :key="it.task_id" class="recent-row" @click="openBacktest(it)">
-          <span class="chip" :class="it.type === 'ma120' ? 'c-ma120' : 'c-dca'">
+          <span class="chip" :class="chipClass(it.type)">
             {{ TYPE_LABEL[it.type] || it.type }}
           </span>
           <span class="recent-symbol">{{ it.symbol_name || it.symbol }}</span>
@@ -453,22 +474,37 @@ onMounted(loadAll)
   gap: 12px;
 }
 .refresh-btn {
-  border: 1px solid var(--border);
-  background: var(--surface);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
   color: var(--text-secondary);
-  border-radius: 6px;
-  padding: 5px 12px;
-  font-size: 12px;
   cursor: pointer;
-  transition: color 0.2s, border-color 0.2s;
+  transition: color 0.2s, background 0.2s;
 }
 .refresh-btn:hover:not(:disabled) {
   color: var(--primary);
-  border-color: var(--primary);
+  background: var(--hover-bg);
 }
 .refresh-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+.refresh-icon {
+  width: 18px;
+  height: 18px;
+}
+.refresh-btn.spinning .refresh-icon {
+  animation: ds-spin 0.9s linear infinite;
+}
+@keyframes ds-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* 市场概览 */
@@ -488,29 +524,45 @@ onMounted(loadAll)
   flex-direction: column;
   gap: 4px;
 }
-.market-custom {
+.market-head {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 22px;
+  margin-bottom: 2px;
 }
-.market-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 5px 8px;
-  border: 1px solid var(--input-border);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--text);
+.market-code {
+  flex-shrink: 0;
   font-size: 12px;
-  font-family: inherit;
+  color: var(--text-tertiary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
-.market-input:focus {
+.market-code-input {
+  flex-shrink: 0;
+  width: 84px;
+  height: 22px;
+  box-sizing: border-box;
+  padding: 0 6px;
+  border: 1px solid var(--input-border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.market-code-input:focus {
   outline: none;
   border-color: var(--primary);
 }
 .market-name {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
   color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .market-price {
   font-size: 20px;
@@ -607,6 +659,10 @@ onMounted(loadAll)
 .c-ma120 {
   background: color-mix(in srgb, #faad14 20%, transparent);
   color: #d48806;
+}
+.c-drawboard {
+  background: color-mix(in srgb, #5470c6 20%, transparent);
+  color: #3a5bbf;
 }
 .t-feature {
   background: color-mix(in srgb, #3ba272 18%, transparent);

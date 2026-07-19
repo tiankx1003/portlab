@@ -32,6 +32,9 @@ services:
       DB_NAME: ${MYSQL_DATABASE:-portlab}
       DATA_SOURCE: ${DATA_SOURCE:-akshare}
       TUSHARE_TOKEN: ${TUSHARE_TOKEN:-}
+      LLM_API_BASE: ${LLM_API_BASE:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
     ports:
       - "8010:8010"
     depends_on:

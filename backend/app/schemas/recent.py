@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 class RecentBacktestItem(BaseModel):
     task_id: str
-    type: str  # 'dca' | 'ma120'
+    type: str  # 'dca' | 'ma120' | 'drawboard'
     symbol: str
     symbol_name: str
     return_rate: float

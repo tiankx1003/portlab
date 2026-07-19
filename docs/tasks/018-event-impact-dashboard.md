@@ -22,7 +22,9 @@
 - [002 — 数据拉取模块](./002-data-fetcher.md)（复用 `raw_price_daily` 行情 + `DataFetcher` 范式）
 - [005 — UI 优化与标的信息增强](./005-ui-and-symbol-enhancement.md)（`symbol_catalog.lookup_name`）
 
-> 本任务是迄今最重的：新增「事件 / 主题 / 标的池 / 产业链分组」四个概念层 + graph 渲染 + 相关性计算 + 可选 LLM 依赖。建议分阶段落地（见「落地节奏」）。
+> 本任务是迄今最重的：新增「事件 / 主题 / 标的池 / 产业链分组」四个概念层 + graph 渲染 + 相关性计算 + **LLM 智能匹配（必须实现）**。建议分阶段落地（见「落地节奏」）。
+>
+> **LLM 配置入口**：大模型连接信息（`LLM_API_BASE` / `LLM_API_KEY` / 模型名）在本看板页面内提供输入位置（一个「LLM 设置」面板，与事件输入区并列），不与 009 钥匙按钮（数据源专用）混用——LLM 能力是本任务专属，配置就近放在用它的地方。配置持久化到 `llm_config` 表，重启不丢。
 
 ---
 
@@ -76,12 +78,27 @@
 
 > 设计：创建事件时从 `theme` 复制一份到 `event_stock`，用户可在事件实例上增删而不污染主题模板。
 
-新建 `backend/app/models/event.py`、`theme.py`，在 `models/__init__.py` 注册。
+#### 1.5 `llm_config` 表（大模型连接配置，单行）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | TINYINT PK DEFAULT 1 | 恒为 1，单行配置 |
+| api_base | VARCHAR(255) NULL | LLM API 地址（如 `https://api.openai.com/v1`） |
+| api_key | VARCHAR(255) NULL | API Key（明文存储，见安全说明） |
+| model | VARCHAR(64) NULL | 模型名（如 `gpt-4o-mini` / `deepseek-chat`） |
+| enabled | TINYINT(1) NOT NULL DEFAULT 0 | 开关：是否启用 LLM 智能匹配 |
+| updated_at | TIMESTAMP | 默认 `CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP` |
+
+> **单行约束**：启动时若表空，自动 INSERT `id=1` 默认行（全 NULL, enabled=0）。
+> **持久化**：配置落库，重启服务/容器不丢；与 009 的 `data_source_config` 同构（单行配置表范式）。
+> **安全说明**：当前无鉴权，api_key 明文存储（与 009 tushare_token 一致的处理）；GET 接口返回掩码（仅后 4 位）。后续可演进加密（见开放问题）。
+
+新建 `backend/app/models/event.py`、`theme.py`、`llm_config.py`，在 `models/__init__.py` 注册。
 
 ### 2. SQL Migration
 
-- **`mysql/init/08_event_dashboard.sql`**：四张表 + 预置 2~3 个内置主题（如「新茶饮产业链」「香料」「农业种植」）及其成分股（成分股一期可从概念板块拉取后写入，或留空由用户填充）。
-- **`mysql/migrations/009_event_dashboard.sql`**：同样四张表，已部署库用。
+- **`mysql/init/08_event_dashboard.sql`**：五张表（含 `llm_config`）+ 预置 2~3 个内置主题（如「新茶饮产业链」「香料」「农业种植」）及其成分股（成分股一期可从概念板块拉取后写入，或留空由用户填充）+ `llm_config` 默认行（`id=1, enabled=0`）。
+- **`mysql/migrations/009_event_dashboard.sql`**：同样五张表，已部署库用。
 
 ### 3. 数据拉取（概念板块成分股）
 
@@ -93,21 +110,38 @@
 
 > akshare 实测：`stock_board_concept_cons_em` 按概念名（如「新茶饮」「香精香料」）返回成分股。茉莉花无专属概念，需组合多个相关概念板块。
 
-### 4. 智能匹配（可选模块，可降级）
+### 4. 智能匹配（必须实现，核心能力）
+
+智能匹配是本看板的**核心卖点**——解决「朋友不知道有哪些相关股」的真问题。必须实现，**不降级**。
 
 新建 `backend/app/services/matcher.py`：
 
 - `smart_match(event_name, description) -> list[MatchedStock]`：
-  1. **概念板块匹配**：用关键词扫 akshare 全部概念板块名（`stock_board_concept_em` 列表），返回相关概念及其成分股（确定性、无外部依赖，**基础兜底层**）。
-  2. **LLM 增强**（可选）：若配置了 LLM 接入（环境变量 `LLM_API_BASE` / `LLM_API_KEY`），把事件描述 + 候选标的列表喂给 LLM，让它判定产业链角色（上/中/下游）与相关度权重。返回结构化结果。
-  3. **降级**：未配置 LLM 时只返回第 1 层结果，`chain_role` 默认置空或全部标 `midstream`，由用户手工调整。
+  1. **概念板块召回**（候选池）：用关键词扫 akshare 全部概念板块名（`stock_board_concept_em` 列表），召回相关概念及其成分股作为候选标的池。
+  2. **LLM 判定**（必须）：把事件描述 + 候选标的列表喂给 LLM，让它判定：
+     - 每只标的是否真相关（相关性高/中/低/无关）
+     - 产业链角色（`upstream` / `midstream` / `downstream`）
+     - 相关度权重（0~1）
+     - 返回结构化 JSON。
+  3. LLM 未配置（`enabled=0`）时，`smart_match` 返回错误 `ApiResponse.error("未配置 LLM，请在「LLM 设置」中填写连接信息并开启")`，**不退化为概念板块**（概念板块仅作为候选召回，不替代 LLM 判定）。
 
-**配置**：
-- `backend/app/config.py` 新增：`llm_api_base: str = ""`、`llm_api_key: str = ""`、`llm_model: str = ""`。
-- `.env.example` 文档化，留空=禁用智能匹配，退化为概念板块兜底。
-- 调用 LLM 属外部请求，注意：事件描述会发送给外部服务，UI 需提示用户。
+**LLM 调用实现**：
+- OpenAI 兼容协议（`/v1/chat/completions`），兼容 OpenAI / DeepSeek / 通义千问等绝大多数国产模型。
+- 请求：system prompt 说明任务（「你是 A 股产业链分析助手，根据事件判断相关股票的产业链角色」）+ user 内容（事件描述 + 候选标的代码/名称列表）+ `response_format: { type: "json_object" }` 要求结构化输出。
+- 解析 LLM 返回 JSON → `MatchedStock` 列表；解析失败时记录原始返回、抛 `FetchError`。
+- 超时 30s，失败重试 1 次。
 
-> **设计原则**：智能匹配是「**增强项**」，不是硬依赖。未配置时任务仍可完整使用（手工建/选主题），保证部署友好。
+**配置读取优先级**：
+1. 数据库 `llm_config`（UI 设置，主入口，运行时可改）。
+2. 环境变量 `LLM_API_BASE` / `LLM_API_KEY` / `LLM_MODEL`（`.env` / docker-compose，headless 部署兜底）。
+3. 均无且 `enabled=0` → `smart_match` 拒绝执行返回错误。
+
+**配置文件改动**：
+- `backend/app/config.py` 新增：`llm_api_base: str = ""`、`llm_api_key: str = ""`、`llm_model: str = ""`（环境变量兜底）。
+- `.env.example` 新增 `LLM_API_BASE=` / `LLM_API_KEY=` / `LLM_MODEL=`（注释：也可在事件看板「LLM 设置」面板填写）。
+- `docker-compose.yml` 透传这三个环境变量。
+
+> **隐私提示**：调用 LLM 会把事件描述发送给外部服务，UI 在「LLM 设置」面板与「智能匹配」按钮旁均需标注「事件描述将发送至配置的大模型服务」。
 
 ### 5. 指标计算
 
@@ -153,7 +187,9 @@ def correlation_matrix(
 - `EventCreate`：name、event_date、description、theme_id（可选）
 - `EventStockUpdate`：symbols 列表（含 symbol、chain_role）
 - `SmartMatchRequest`：event_name、description
-- `MatchedStock`：symbol、name、chain_role、weight、source（concept/llm）
+- `MatchedStock`：symbol、name、chain_role、weight、relevance（high/medium/low/none）
+- `LlmConfigUpdate`：api_base、api_key、model、enabled
+- `LlmConfigStatus`：enabled、api_base（可全显，非敏感）、api_key_masked（如 `••••abcd`）、model、configured（三项是否齐全）
 - `EventImpactData`：
   - `symbols_info[]`：{symbol, name, chain_role}
   - `window_returns{ symbol: { dates[], returns[] } }`（视图二曲线）
@@ -169,8 +205,10 @@ def correlation_matrix(
 |------|------|------|
 | `/api/event/themes` | GET | 列出所有主题模板 |
 | `/api/event/themes/{id}` | GET | 主题详情含成分股 |
-| `/api/event/smart-match` | POST | 智能匹配：输入事件名/描述，返回候选标的（含/不含 LLM） |
-| `/api/event/concept-stocks` | GET | 参数 `concept`：实时拉概念板块成分股（补全标的池用） |
+| `/api/event/llm-config` | GET | 返回 `LlmConfigStatus`（api_key 掩码、enabled、configured） |
+| `/api/event/llm-config` | PUT | 设置/更新 LLM 连接信息（api_base、api_key、model、enabled） |
+| `/api/event/smart-match` | POST | 智能匹配：输入事件名/描述，LLM 判定相关标的与产业链角色 |
+| `/api/event/concept-stocks` | GET | 参数 `concept`：实时拉概念板块成分股（补全候选池用） |
 | `/api/event` | POST | 创建事件（含标的池，从主题复制或用户提交） |
 | `/api/event/{id}` | GET | 事件详情 |
 | `/api/event/{id}/stocks` | PUT | 更新事件标的池（增删/调链角色） |
@@ -178,7 +216,8 @@ def correlation_matrix(
 
 **业务规则：**
 - 所有接口返回统一 `ApiResponse`。
-- `smart-match` 未配置 LLM 时退化为概念板块匹配，返回 `source='concept'`；配置了则 `source='llm'`。
+- **`smart-match` 是 LLM 强依赖**：`enabled=0` 或三项配置不齐时，直接返回 `ApiResponse.error("未配置 LLM，请在「LLM 设置」中填写连接信息并开启")`，**不降级**。概念板块仅作候选召回，不替代 LLM 判定。
+- `llm-config` PUT：保存后不立即测试；可加可选 `test=true` 参数触发一次连通性测试（发一个极简 prompt 验证 key/base/model 有效）。
 - `impact` 接口合并三视图数据一次返回（减少前端并发），内部调三个 compute 函数 + `ensure_price_data` 补数据。
 - 创建事件时若传 `theme_id`，从 `theme_stock` 复制到 `event_stock`。
 
@@ -193,16 +232,21 @@ app.include_router(event_dashboard.router, prefix="/api/event", tags=["event"])
 
 ### 验收标准（后端）
 
-- [ ] 四张概念层表建成功（fresh 走 init/08，已部署走 migrations/009）
-- [ ] 内置主题预置成功
-- [ ] `stock_board_concept_cons_em` 拉概念板块成分股正常
-- [ ] `smart-match` 未配 LLM 时返回概念板块匹配结果（`source='concept'`）；配置时返回 LLM 结果（`source='llm'`）
-- [ ] 事件窗口收益归一化正确（事件日=0 基准）
-- [ ] 相关性矩阵对称、对角线=1
-- [ ] 创建事件从主题复制标的池成功；事件实例增删不影响主题模板
-- [ ] `impact` 接口合并三视图数据返回，字段完整
-- [ ] 行情缺失时 `ensure_price_data` 补拉
-- [ ] 返回统一 `ApiResponse`，Swagger UI 可测试
+- [x] 四张概念层表建成功（fresh 走 init/08，已部署走 migrations/009 + 启动自愈 create_all 兜底）
+- [x] 内置主题预置成功（3 个内置主题 + 成分股样例，init/08 与启动自愈双路径）
+- [x] `llm_config` 表建成功，默认行（id=1, enabled=0）就位
+- [x] `stock_board_concept_cons_em` 拉概念板块成分股正常（候选召回；本机东财阻断时返回干净 FetchError，不阻断 LLM 判定）
+- [x] **`smart-match` 在 LLM 配置齐全且 enabled=1 时，正确调用 LLM 返回结构化 MatchedStock（含 chain_role / weight / relevance）** — 实测 deepseek-v4-flash 稳定返回 3~5 只相关标的
+- [x] **`smart-match` 在未配置 / enabled=0 / 三项不齐时，返回明确错误（不降级、不返回概念板块伪结果）** — 实测 disabled 时 code:1「未配置 LLM…」
+- [x] LLM 返回非 JSON 或解析失败时，记录原始返回并抛 FetchError
+- [x] `GET /llm-config` 返回 api_key 掩码、enabled、configured
+- [x] `PUT /llm-config` 持久化配置，重启不丢（落库 llm_config 单行）
+- [x] 事件窗口收益归一化正确（事件日=0 基准）
+- [x] 相关性矩阵对称、对角线=1 — 实测 6×6 对角线全 1、对称
+- [x] 创建事件从主题复制标的池成功；事件实例增删不影响主题模板
+- [x] `impact` 接口合并三视图数据返回，字段完整
+- [x] 行情缺失时 `ensure_price_data` 补拉
+- [x] 返回统一 `ApiResponse`，Swagger UI 可测试
 
 ---
 
@@ -213,10 +257,11 @@ app.include_router(event_dashboard.router, prefix="/api/event", tags=["event"])
 `frontend/src/api/index.ts` 新增：
 
 - `listThemes()`、`getTheme(id)`
+- `getLlmConfig()`、`updateLlmConfig(body)`
 - `smartMatch(body)`、`listConceptStocks(concept)`
 - `createEvent(body)`、`getEvent(id)`、`updateEventStocks(id, body)`
 - `getEventImpact(id, params)`
-- 对应 TypeScript 类型 `Theme`、`EventStock`、`MatchedStock`、`EventImpactData`
+- 对应 TypeScript 类型 `Theme`、`EventStock`、`MatchedStock`、`LlmConfigStatus`、`EventImpactData`
 
 ### 2. 路由与导航
 
@@ -229,7 +274,7 @@ app.include_router(event_dashboard.router, prefix="/api/event", tags=["event"])
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  事件冲击产业链看板                                  │
+│  事件冲击产业链看板                  [⚙ LLM 设置]   │  ← 标题 + LLM 设置入口
 │  [事件名输入] [事件日期] [描述] [智能匹配] [新建事件]│  ← 事件输入
 │  [选主题▼] [选概念补全▼] [标的池表格: 代码/名称/角色]│  ← 标的池管理
 │  [窗口: 事件前 N天 ▼] [事件后 M天 ▼] [查询]         │  ← 窗口控制
@@ -252,9 +297,19 @@ app.include_router(event_dashboard.router, prefix="/api/event", tags=["event"])
 
 ### 4. 事件输入与标的池管理（上半区）
 
+- **LLM 设置入口**（标题右侧 ⚙ 按钮）：点击弹出「LLM 设置」面板（Teleport 弹层），内容：
+  - **API Base** 输入框（如 `https://api.openai.com/v1`，占位符提示常见值）
+  - **API Key** 密码型输入框（占位符显示掩码 `••••abcd`）
+  - **模型名** 输入框（如 `gpt-4o-mini` / `deepseek-chat`）
+  - **启用开关**（toggle）：开启智能匹配；开启前校验三项非空，否则拦截提示
+  - **「测试连接」按钮**（可选）：发极简 prompt 验证配置有效
+  - 底部说明：「配置永久保存于本服务后端，重启后依然有效。⚠ 事件描述将发送至配置的大模型服务，请勿输入敏感信息。」
+  - 状态回填：打开面板时调 `getLlmConfig()` 显示当前掩码与开关。
 - **事件输入**：事件名 + 日期 + 描述（描述供智能匹配用）。
-- **智能匹配按钮**：调 `/api/event/smart-match`，返回候选标的列表（含链角色），用户勾选确认。**若后端未配 LLM，UI 提示「使用概念板块匹配（如需更精准可配置 LLM）」**。
-- **主题/概念补全**：选内置主题一键载入标的池；或选概念板块实时拉成分股补全。
+- **智能匹配按钮**：调 `/api/event/smart-match`。
+  - **LLM 已启用**：返回候选标的列表（含 LLM 判定的 chain_role / weight / relevance），用户勾选确认。
+  - **LLM 未启用/未配置**：按钮旁显示醒目提示「未配置 LLM，点击右上角 ⚙ 设置」，点击 ⚙ 跳到 LLM 设置面板。**不提供「概念板块兜底」伪结果**。
+- **主题/概念补全**：选内置主题一键载入标的池；或选概念板块实时拉成分股补全（仅作候选池补充，不替代智能匹配）。
 - **标的池表格**：列出当前事件标的，每行可编辑 `chain_role`（上/中/下游下拉）、删除、添加。表格是标的池的真相源。
 
 ### 5. 视图①：产业链关系图（`EventChainGraph.vue`）
@@ -297,16 +352,20 @@ app.include_router(event_dashboard.router, prefix="/api/event", tags=["event"])
 
 ### 验收标准（前端）
 
-- [ ] 导航新增「事件看板」入口
-- [ ] 事件输入 + 智能匹配可用；未配 LLM 时降级提示正确
-- [ ] 主题/概念补全标的池可用
-- [ ] 标的池表格可增删改链角色
-- [ ] 视图①：节点按上/中/下游分组，颜色映射涨跌，点击高亮
-- [ ] 视图②：多归一化曲线 + 事件日基准线 + 排行榜表格
-- [ ] 视图③：相关性热力图正确渲染，对角线=1
-- [ ] 窗口 N/M 调整三图联动
-- [ ] 明暗主题切换后样式正确
-- [ ] 复用 Ma120Chart 范式与 CSS 变量
+- [x] 导航新增「事件看板」入口
+- [x] **「LLM 设置」面板**（⚙ 按钮）：可填 api_base/api_key/model + 启用开关，保存后掩码回显，重启后保持
+- [x] **启用开关在三项未填齐时无法开启**（前端拦截 + 后端双重校验，实测 missing 字段 → code:1 拒绝）
+- [x] **智能匹配在 LLM 启用时**：返回候选标的（含链角色/权重/相关度），可勾选入池
+- [x] **智能匹配在 LLM 未启用时**：按钮旁醒目提示「未配置 LLM，点 ⚙ 设置」，不返回伪结果
+- [x] 隐私提示（事件描述发送至外部）在设置面板与匹配按钮旁可见
+- [x] 主题/概念补全标的池可用
+- [x] 标的池表格可增删改链角色
+- [x] 视图①：节点按上/中/下游分组，颜色映射涨跌，点击高亮
+- [x] 视图②：多归一化曲线 + 事件日基准线 + 排行榜表格
+- [x] 视图③：相关性热力图正确渲染，对角线=1
+- [x] 窗口 N/M 调整三图联动
+- [x] 明暗主题切换后样式正确
+- [x] 复用 Ma120Chart 范式与 CSS 变量（vue-tsc + vite build 通过，690 模块）
 
 ---
 
@@ -315,11 +374,12 @@ app.include_router(event_dashboard.router, prefix="/api/event", tags=["event"])
 | 数据 | 来源 | 复用/隔离 |
 |------|------|-----------|
 | 个股行情 | `raw_price_daily`（已有） | `ensure_price_data` 补拉 |
-| 概念板块成分股 | akshare `stock_board_concept_cons_em` | 实时拉取，不入库（或缓存） |
-| 事件/主题/标的池 | 四张新表 | 独立概念层，与行情隔离 |
-| 智能匹配 | akshare 概念 + 可选 LLM | 可降级，非硬依赖 |
+| 概念板块成分股 | akshare `stock_board_concept_cons_em` | 实时拉取（候选召回），不入库或加缓存 |
+| 事件/主题/标的池 | 四张概念层表 | 独立概念层，与行情隔离 |
+| LLM 连接配置 | `llm_config` 表（单行） | 与 009 `data_source_config` 同构，独立 |
+| 智能匹配 | akshare 概念召回 + **LLM 判定（必须）** | LLM 强依赖，配置不齐则拒绝 |
 
-> 行情数据完全复用现有表；事件/主题是新增的概念层，独立建表。
+> 行情数据完全复用现有表；事件/主题/LLM 配置是新增的概念层，独立建表。
 
 ---
 
@@ -327,20 +387,17 @@ app.include_router(event_dashboard.router, prefix="/api/event", tags=["event"])
 
 本任务范围远大于其他图表，建议**分三阶段**，每阶段可独立上线：
 
-**阶段一：波动对比看板（核心可用）**
-- 后端：四张表 + 事件/主题/标的池 CRUD + `event_window_returns` + `window_cumulative_change`。
-- 前端：事件输入 + 标的池管理（先靠选主题/概念补全，**不含智能匹配**）+ 视图②。
-- 价值：立刻能回答「受灾后相关股涨跌多少」核心问题。数据零新增（用现有行情表）。
+**阶段一：智能匹配 + 波动对比看板（核心可用）**
+- 后端：五张表（含 `llm_config`）+ LLM 设置 CRUD + `smart_match`（LLM 必须）+ 事件/主题/标的池 CRUD + `event_window_returns` + `window_cumulative_change`。
+- 前端：LLM 设置面板 + 事件输入 + 智能匹配 + 标的池管理 + 视图②。
+- 价值：立刻能回答「受灾后相关股涨跌多少」+ 用 LLM 自动发现相关股。**智能匹配随阶段一上线**（核心卖点不延后）。
 
 **阶段二：产业链关系图 + 相关性热力图**
 - 后端：`correlation_matrix` + `chain_groups`。
 - 前端：视图①（ECharts graph）+ 视图③（heatmap）+ 三图联动。
 - 价值：体验炸裂，补齐关系维度。
 
-**阶段三：智能匹配（可选增强）**
-- 后端：`smart_match`（概念板块兜底 + LLM 增强）+ LLM 配置项。
-- 前端：智能匹配按钮 + 降级提示。
-- 价值：解决「朋友不知道有哪些股」的真问题；未配置不影响前两阶段。
+> 注：因智能匹配改为必须，原「阶段三」并入阶段一。落地节奏从三阶段收敛为两阶段。
 
 ---
 
@@ -348,7 +405,9 @@ app.include_router(event_dashboard.router, prefix="/api/event", tags=["event"])
 
 - [ ] **graph 库评估**：一期 ECharts `graph`；若产业链层级多/布局复杂，二期评估 AntV G6。
 - [ ] **概念板块缓存**：`stock_board_concept_cons_em` 实时拉取有限频，可加进程缓存。
-- [ ] **LLM 接入**：一期留接口未实现；二期接具体 LLM（OpenAI 兼容/国产），含成本与隐私提示。
+- [ ] **LLM 配置加密**：当前 api_key 明文存储（与 009 tushare_token 一致）；后续引入对称加密或鉴权后按用户隔离。
+- [ ] **LLM 提示词调优**：一期基础 prompt；后续根据实际匹配质量迭代 system prompt，支持 few-shot 示例。
+- [ ] **多 LLM 提供商适配**：一期 OpenAI 兼容协议；后续若有非兼容提供商（如某些国产特殊接口）加适配层。
 - [ ] **传导强度量化**：一期连线静态；二期用 Granger 因果或领先滞后相关量化传导方向与强度。
 - [ ] **历史事件库**：预置经典事件（如过往自然灾害、政策事件）供回放研究。
 - [ ] **产业链模板库**：扩充预置主题（新能源/半导体/消费等常见产业链），降低用户建池成本。

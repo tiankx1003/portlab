@@ -33,7 +33,8 @@ def get_market_overview(db: Session, extra: str | None = None) -> dict:
     src = resolve_source(db)
     model = SOURCE_TABLE[src]
 
-    symbols: list[tuple[str, str]] = list(OVERVIEW_SYMBOLS)
+    # 预置指数：名称用全名（symbol_catalog 解析），解析不到回退短名
+    symbols: list[tuple[str, str]] = [(c, lookup_name(c) or n) for c, n in OVERVIEW_SYMBOLS]
     if extra:
         from ..utils.symbol import strip_market_prefix
 

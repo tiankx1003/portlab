@@ -5,6 +5,7 @@ import Ma120Backtest from '../views/Ma120Backtest.vue'
 import DrawboardView from '../views/DrawboardView.vue'
 import EtfFlowView from '../views/EtfFlowView.vue'
 import ValuationView from '../views/ValuationView.vue'
+import EventDashboardView from '../views/EventDashboardView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -15,6 +16,7 @@ const router = createRouter({
     { path: '/drawboard', name: 'drawboard', component: DrawboardView },
     { path: '/etf-flow', name: 'etf-flow', component: EtfFlowView },
     { path: '/valuation', name: 'valuation', component: ValuationView },
+    { path: '/event', name: 'event', component: EventDashboardView },
   ],
 })
 
