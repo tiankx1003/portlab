@@ -22,22 +22,14 @@ const route = useRoute()
 const COLOR_UP = '#ee6666'
 const COLOR_DOWN = '#3ba272'
 
-// 近 3 年起始日（前端算，后端不强制）
-function yearsAgo(n: number): string {
-  const d = new Date()
-  d.setFullYear(d.getFullYear() - n)
-  return d.toISOString().slice(0, 10)
-}
-
-const symbol = ref('510880')
-const startDate = ref(yearsAgo(3))
+const symbol = ref('512890')
+const startDate = ref('2022-01-01')
 const endDate = ref(new Date().toISOString().slice(0, 10))
-const sellMode = ref<DrawSellMode>('new_high')
+const sellMode = ref<DrawSellMode>('none')
 const buyAmount = ref(10000)
 const addAmount = ref(5000)
-const threshold = ref(20)
-const step = ref(5)
-const showAdvanced = ref(false)
+const threshold = ref(10)
+const step = ref(2)
 
 const loading = ref(false)
 const saving = ref(false)
@@ -51,14 +43,12 @@ const SELL_LABEL: Record<DrawSellMode, string> = {
   new_high: '新高清仓',
   partial: '半仓兑现',
 }
-const sellHint = computed(
-  () =>
-    ({
-      none: '只买不卖，持仓展示收益率',
-      new_high: '新高（回撤归 0）清仓兑现',
-      partial: '新高卖出 50%，留底仓等下次跌破再买',
-    })[sellMode.value],
-)
+// 卖出方式解释（第一行右侧感叹号图标悬停展示，替代原灰色提示行）
+const SELL_EXPLAIN: { label: string; text: string }[] = [
+  { label: '新高清仓', text: '新高（回撤归 0）清仓兑现' },
+  { label: '只买不卖', text: '只买不卖，持仓展示收益率' },
+  { label: '半仓兑现', text: '新高卖出 50%，留底仓等下次跌破再买' },
+]
 
 // ---- 标的搜索（带去抖）----
 const suggestions = ref<SymbolItem[]>([])
@@ -277,6 +267,15 @@ function pnlColor(n: number | undefined | null): string {
           加仓金额（元）
           <input v-model.number="addAmount" type="number" min="100" step="100" />
         </label>
+        <span class="sell-info">
+          <span class="info-icon" tabindex="0" aria-label="卖出方式说明">!<span class="info-pop">
+            <div class="sell-mode-list">
+              <div v-for="m in SELL_EXPLAIN" :key="m.label">
+                <b>{{ m.label }}</b>：{{ m.text }}
+              </div>
+            </div>
+          </span></span>
+        </span>
       </div>
 
       <div class="form-row">
@@ -303,19 +302,7 @@ function pnlColor(n: number | undefined | null): string {
           {{ saving ? '保存中…' : '保存' }}
         </button>
       </div>
-
-      <!-- 高级参数（预留，本任务暂无可折叠项） -->
-      <div class="advanced">
-        <button class="advanced-toggle" type="button" @click="showAdvanced = !showAdvanced">
-          {{ showAdvanced ? '▾' : '▸' }} 高级参数
-        </button>
-        <div v-if="showAdvanced" class="form-row advanced-row">
-          <p class="muted">暂无可折叠的高级参数；回撤阈值 / 加仓步长已置于主表单。</p>
-        </div>
-      </div>
     </div>
-
-    <p class="muted hint-line">卖出方式：{{ sellHint }}</p>
 
     <p v-if="errorMsg" class="err">{{ errorMsg }}</p>
     <p v-if="savedMsg" class="ok">{{ savedMsg }}</p>
@@ -423,33 +410,53 @@ button.primary:disabled {
   background: var(--primary-disabled);
   cursor: not-allowed;
 }
-.advanced {
-  margin-bottom: 12px;
+/* 卖出方式解释：感叹号图标悬停弹层（参考定投回测偏离度解释） */
+.sell-info {
+  align-self: flex-end;
+  margin: 0 0 9px 4px;
 }
-.advanced-toggle {
-  background: none;
-  border: none;
+.info-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: help;
+  user-select: none;
+}
+.info-pop {
+  position: absolute;
+  left: 22px;
+  top: -10px;
+  z-index: 50;
+  display: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  white-space: nowrap;
+}
+.info-icon:hover .info-pop,
+.info-icon:focus .info-pop {
+  display: block;
+}
+.sell-mode-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
   color: var(--text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  padding: 4px 0;
 }
-.advanced-toggle:hover {
-  color: var(--primary);
-}
-.advanced-row {
-  margin-top: 10px;
-  margin-bottom: 0;
-  padding-top: 10px;
-  border-top: 1px dashed var(--border-light);
-}
-.muted {
-  color: var(--text-tertiary);
-  font-size: 13px;
-  margin: 0;
-}
-.hint-line {
-  margin: 0 0 12px;
+.sell-mode-list b {
+  color: var(--text);
+  font-weight: 600;
 }
 .cards {
   display: flex;

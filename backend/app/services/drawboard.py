@@ -124,7 +124,10 @@ def _simulate(
     holding = Decimal(0)
     cum_invested = Decimal(0)
     cum_proceeds = Decimal(0)
-    last_buy_dd: Decimal | None = None  # 上一笔买入时的回撤（负小数）
+    # 买入阶梯锚定在「理想档位」而非实际买入回撤：首笔 -threshold，此后每 -step。
+    # 避免单日缺口（如从 -6% 直跳 -12%）把锚点拉深，导致中间档位（-12%）再也不触发。
+    bought = False
+    next_buy_dd = t  # 下一个未买的回撤档位（负小数）
 
     rows: list[_DayRow] = []
     buys: list[dict] = []
@@ -139,16 +142,15 @@ def _simulate(
         signal = "hold"
         action_amount = Decimal(0)
 
-        # 买入：首次达阈值 / 较上次买入再跌 step
-        if (last_buy_dd is None and dd <= t) or (
-            last_buy_dd is not None and dd <= last_buy_dd - step
-        ):
-            amt = a if last_buy_dd is None else m
+        # 买入：dd 跌破下一个未买的档位（首笔 -threshold，之后每 -step 一档）
+        if dd <= next_buy_dd:
+            amt = a if not bought else m
             if amt > 0:
                 shares = amt / price
                 holding += shares
                 cum_invested += amt
-                last_buy_dd = dd
+                bought = True
+                next_buy_dd -= step  # 阶梯下移一格；后续回踩到下一档时补仓
                 action_amount = amt
                 signal = "buy"
                 buys.append({"date": d, "price": float(price), "amount": float(amt)})
@@ -165,7 +167,8 @@ def _simulate(
                 signal = "sell"
                 sells.append({"date": d, "price": float(price), "amount": float(proceeds)})
                 holding = Decimal(0)
-                last_buy_dd = None  # 重置买入阶梯
+                bought = False  # 重置买入阶梯
+                next_buy_dd = t
             elif sell_mode == "partial":
                 sell_shares = holding / 2  # 卖一半，留底仓
                 proceeds = sell_shares * price
@@ -174,7 +177,7 @@ def _simulate(
                 signal = "sell"
                 sells.append({"date": d, "price": float(price), "amount": float(proceeds)})
                 holding -= sell_shares
-                # 不重置 last_buy_dd，下次跌破仍可加仓
+                # 不重置阶梯，下次跌破仍可加仓
 
         mv = holding * price + cum_proceeds
         pnl = mv - cum_invested

@@ -33,9 +33,49 @@ function themeColors() {
 
 const SIGNAL_LABEL: Record<string, string> = { buy: '买入', sell: '卖出', hold: '观望' }
 
+// 把数据极值取整为「好看」的刻度端点（避免浮点尾数显示在轴端）。
+function niceNum(range: number, round: boolean): number {
+  if (range <= 0) return 1
+  const exp = Math.floor(Math.log10(range))
+  const frac = range / Math.pow(10, exp)
+  let nf: number
+  if (round) {
+    nf = frac < 1.5 ? 1 : frac < 3 ? 2 : frac < 7 ? 5 : 10
+  } else {
+    nf = frac <= 1 ? 1 : frac <= 2 ? 2 : frac <= 5 ? 5 : 10
+  }
+  return nf * Math.pow(10, exp)
+}
+function niceBounds(dataMin: number, dataMax: number): { min: number; max: number } {
+  if (dataMin === dataMax) { dataMin -= 1; dataMax += 1 }
+  if (dataMin > 0) dataMin = 0
+  if (dataMax < 0) dataMax = 0
+  const range = niceNum(dataMax - dataMin, false)
+  const step = niceNum(range / 4, true)
+  return { min: Math.floor(dataMin / step) * step, max: Math.ceil(dataMax / step) * step }
+}
+
 function buildOption(d: DrawboardChartData): echarts.EChartsOption {
   const tc = themeColors()
   const hasBench = !!d.benchmark_name && d.benchmark_returns.some((v) => v != null)
+
+  // 三轴 0 值对齐：以「收益率/回撤」% 轴的负/正跨度定 0 所在高度 r，
+  // 再把左轴(金额)与右2轴(价格)的下沿按 r/(1-r) 同比延伸到负值，使三轴 0 共线。
+  let pctMin = 0
+  let pctMax = 0
+  const pctVals: number[] = [...d.drawdown, ...d.return_rates]
+  if (hasBench) for (const v of d.benchmark_returns) if (v != null) pctVals.push(v)
+  for (const v of pctVals) {
+    if (v < pctMin) pctMin = v
+    if (v > pctMax) pctMax = v
+  }
+  // 取整为「好看」的刻度端点（避免浮点尾数），再据此算 0 对齐比例
+  const nb = niceBounds(pctMin, pctMax)
+  pctMin = nb.min
+  pctMax = nb.max
+  const span = pctMax - pctMin
+  const r = span > 0 ? -pctMin / span : 0 // 0 在轴上的高度（自底向上）
+  const negFactor = 1 - r > 0 ? r / (1 - r) : 0 // min = -max * negFactor ⇒ 0 落在 r
 
   const buyMarks = d.buy_points.map((p) => ({
     name: '买入',
@@ -96,7 +136,16 @@ function buildOption(d: DrawboardChartData): echarts.EChartsOption {
     {
       name: '回撤', type: 'line', yAxisIndex: 1,
       data: d.drawdown, symbol: 'none', connectNulls: true,
-      itemStyle: { color: COLOR_DD }, lineStyle: { width: 1.5 }, areaStyle: { opacity: 0.08 },
+      itemStyle: { color: COLOR_DD }, lineStyle: { width: 1.5 },
+      areaStyle: { opacity: 0.15 }, // 曲线与 0 线（横轴）框出的回撤深度区域
+      // 回撤阈值横虚线：在 % 轴 -threshold 处标注买点触发线（无文字）
+      markLine: {
+        symbol: 'none',
+        silent: true,
+        label: { show: false },
+        lineStyle: { color: COLOR_DD, type: 'dashed', width: 1.5 },
+        data: [{ yAxis: -props.threshold }],
+      },
     },
   ]
   const legendData = ['市值', '成本', '亏损', '盈利', '收益率', '收盘价', '回撤']
@@ -161,7 +210,7 @@ function buildOption(d: DrawboardChartData): echarts.EChartsOption {
       },
     },
     legend: { data: legendData, top: 0, textStyle: { color: tc.axisLabel } },
-    grid: { left: 64, right: 120, top: 40, bottom: 64 },
+    grid: { left: 64, right: 144, top: 40, bottom: 64 },
     xAxis: {
       type: 'category',
       data: d.dates,
@@ -172,21 +221,31 @@ function buildOption(d: DrawboardChartData): echarts.EChartsOption {
     },
     yAxis: [
       {
-        type: 'value', name: '金额(元)', scale: true,
+        // 左轴 金额(元)：max 取数据顶，min 按 negFactor 延伸到负，使 0 与 % 轴共线
+        type: 'value', name: '金额(元)',
+        max: (v: any) => v.max,
+        min: (v: any) => -v.max * negFactor,
         axisLine: { show: true, lineStyle: { color: tc.axisLine } },
-        axisLabel: { color: tc.axisLabel },
+        axisLabel: { color: tc.axisLabel, formatter: (v: number) => Math.round(v).toLocaleString('zh-CN') },
         splitLine: { lineStyle: { color: tc.splitLine } },
         nameTextStyle: { color: tc.axisLabel },
       },
       {
-        type: 'value', name: '收益率/回撤(%)', scale: true,
+        // 右1轴 收益率/回撤(%)：回撤与之共用；显式 min/max 把 0 钉在 r
+        type: 'value', name: '收益率/回撤(%)',
+        min: pctMin,
+        max: pctMax,
+        position: 'right',
         axisLine: { show: true, lineStyle: { color: tc.axisLine } },
-        axisLabel: { color: tc.axisLabel },
+        axisLabel: { color: tc.axisLabel, formatter: (v: number) => Math.round(v).toString() },
         splitLine: { show: false },
         nameTextStyle: { color: tc.axisLabel },
       },
       {
-        type: 'value', name: '价格(元)', scale: true, position: 'right', offset: 56,
+        // 右2轴 价格(元)：同样按 negFactor 延伸下沿，0 与上两轴共线
+        type: 'value', name: '价格(元)', position: 'right', offset: 80,
+        max: (v: any) => v.max,
+        min: (v: any) => -v.max * negFactor,
         axisLine: { show: true, lineStyle: { color: tc.axisLine } },
         axisLabel: { color: tc.axisLabel },
         splitLine: { show: false },

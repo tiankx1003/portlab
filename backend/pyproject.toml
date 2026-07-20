@@ -11,6 +11,7 @@ dependencies = [
     "pydantic-settings>=2.5",
     "akshare>=1.14",
     "pandas>=2.0",
+    "scipy>=1.11",
     "tushare>=1.4",
 ]
 
@@ -23,6 +24,10 @@ dev = [
 
 # 不声明 [build-system]：uv 将其视为虚拟项目（应用），
 # `uv sync` 只安装 dependencies，不构建/安装项目自身。
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
