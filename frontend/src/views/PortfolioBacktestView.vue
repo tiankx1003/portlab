@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import MetricCard from '../components/MetricCard.vue'
+import DateInput from '../components/DateInput.vue'
 import PortfolioNavChart from '../components/PortfolioNavChart.vue'
 import CorrelationHeatmap from '../components/CorrelationHeatmap.vue'
 import EfficientFrontierChart from '../components/EfficientFrontierChart.vue'
@@ -150,6 +151,8 @@ onMounted(() => {
         loading.value = false
       }
     })()
+  } else {
+    runBacktest() // 进入即用默认组合渲染；改参数后点「回测」重跑
   }
 })
 
@@ -236,8 +239,8 @@ function pnlColor(n: number | undefined): string {
       </div>
 
       <div class="form-row">
-        <label>起始日期<input v-model="startDate" type="date" /></label>
-        <label>结束日期<input v-model="endDate" type="date" /></label>
+        <label>起始日期<DateInput v-model="startDate" /></label>
+        <label>结束日期<DateInput v-model="endDate" /></label>
         <button :disabled="loading" class="primary" @click="runBacktest">
           {{ loading ? '回测中…' : '开始回测' }}
         </button>

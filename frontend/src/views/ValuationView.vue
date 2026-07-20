@@ -72,7 +72,7 @@ function render() {
             pointer: { width: 5, length: '65%' },
             detail: {
               valueAnimation: true,
-              formatter: `{val}%\n{n|${tempLabel(p)}}`,
+              formatter: `{value}%\n{n|${tempLabel(p)}}`,
               fontSize: 22,
               offsetCenter: [0, '32%'],
               rich: { n: { fontSize: 13, color: '#888' } },
@@ -93,9 +93,9 @@ function render() {
     hist.setOption(
       {
         tooltip: { trigger: 'axis' },
-        grid: { left: 56, right: 20, top: 24, bottom: 24 },
+        grid: { left: 56, right: 56, top: 40, bottom: 36 },
         xAxis: { type: 'category', data: dates, axisLabel: { fontSize: 10 } },
-        yAxis: { type: 'value', name: 'PE', axisLabel: { fontSize: 10 } },
+        yAxis: { type: 'value', name: 'PE', nameLocation: 'end', nameGap: 8, axisLabel: { fontSize: 10 } },
         dataZoom: [{ type: 'inside' }],
         series: [
           {
@@ -107,7 +107,7 @@ function render() {
             markLine: {
               symbol: 'none',
               data: [
-                { yAxis: d.current_pe ?? 0, lineStyle: { color: '#ee6666', type: 'dashed' }, label: { formatter: '当前', color: '#ee6666' } },
+                { yAxis: d.current_pe ?? 0, lineStyle: { color: '#ee6666', type: 'dashed' }, label: { formatter: '当前', color: '#ee6666', position: 'insideEndTop' } },
               ],
             },
           },

@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import MetricCard from '../components/MetricCard.vue'
+import DateInput from '../components/DateInput.vue'
 import DcaChart from '../components/DcaChart.vue'
 import {
   createBacktest,
@@ -191,6 +192,7 @@ async function loadTask(taskId: string) {
 onMounted(() => {
   const t = route.query.task
   if (typeof t === 'string' && t) loadTask(t)
+  else runBacktest() // 进入即用默认参数渲染；改参数后点「回测」重跑
 })
 
 // 图表标题：标的名称 · 回测结果（无名称时回退为代码）
@@ -290,11 +292,11 @@ function pnlColor(n: number | undefined): string {
         </label>
         <label>
           起始日期
-          <input v-model="startDate" type="date" />
+          <DateInput v-model="startDate" />
         </label>
         <label>
           结束日期
-          <input v-model="endDate" type="date" />
+          <DateInput v-model="endDate" />
         </label>
         <button :disabled="loading" class="primary" @click="runBacktest">
           {{ loading ? '回测中…' : '开始回测' }}

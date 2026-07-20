@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import ArenaNavChart from '../components/ArenaNavChart.vue'
+import DateInput from '../components/DateInput.vue'
 import ArenaTable from '../components/ArenaTable.vue'
 import { compareArena, searchSymbols, type ArenaData, type SymbolItem } from '../api'
 
@@ -94,6 +95,10 @@ async function runCompare() {
     loading.value = false
   }
 }
+
+onMounted(() => {
+  runCompare() // 进入即用默认参数对比；改参数后点「对比」重跑
+})
 </script>
 
 <template>
@@ -135,8 +140,8 @@ async function runCompare() {
           </label>
         </template>
 
-        <label>起始(可选)<input v-model="startDate" type="date" /></label>
-        <label>结束(可选)<input v-model="endDate" type="date" /></label>
+        <label>起始(可选)<DateInput v-model="startDate" /></label>
+        <label>结束(可选)<DateInput v-model="endDate" /></label>
         <button :disabled="loading" class="primary" @click="runCompare">
           {{ loading ? '对比中…' : '对比' }}
         </button>

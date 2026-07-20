@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import MetricCard from '../components/MetricCard.vue'
+import DateInput from '../components/DateInput.vue'
 import Ma120Chart from '../components/Ma120Chart.vue'
 import {
   createMa120,
@@ -191,6 +192,7 @@ async function loadTask(taskId: string) {
 onMounted(() => {
   const t = route.query.task
   if (typeof t === 'string' && t) loadTask(t)
+  else runBacktest() // 进入即用默认参数渲染；改参数后点「回测」重跑
 })
 
 const chartTitle = computed(() => {
@@ -259,11 +261,11 @@ function pnlColor(n: number | undefined): string {
       <div class="form-row">
         <label>
           起始日期
-          <input v-model="startDate" type="date" />
+          <DateInput v-model="startDate" />
         </label>
         <label>
           结束日期
-          <input v-model="endDate" type="date" />
+          <DateInput v-model="endDate" />
         </label>
         <label>
           份数

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, ref } from 'vue'
 import * as echarts from 'echarts'
+import DateInput from '../components/DateInput.vue'
 import { getEtfFlow, type EtfFlowData, type EtfSignal } from '../api'
 
 // 信号展示元数据（顺序即卡片顺序）
@@ -101,11 +102,11 @@ onUnmounted(() => {
         </label>
         <label>
           起始日期
-          <input v-model="startDate" type="date" />
+          <DateInput v-model="startDate" />
         </label>
         <label>
           结束日期
-          <input v-model="endDate" type="date" />
+          <DateInput v-model="endDate" />
         </label>
         <button :disabled="loading" class="primary" @click="load">
           {{ loading ? '加载中…' : '加载' }}

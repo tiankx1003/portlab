@@ -156,8 +156,8 @@ body {
   border-bottom: none;
 }
 .brand-logo {
-  width: 24px;
-  height: 24px;
+  width: 30px;
+  height: 30px;
   margin-right: 10px;
   flex-shrink: 0;
 }

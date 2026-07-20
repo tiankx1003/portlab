@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import EventChainGraph from '../components/EventChainGraph.vue'
+import DateInput from '../components/DateInput.vue'
 import EventImpactChart from '../components/EventImpactChart.vue'
 import CorrelationHeatmap from '../components/CorrelationHeatmap.vue'
 import {
@@ -283,7 +284,7 @@ onMounted(() => {
         <input v-model="evName" placeholder="如：茉莉花产地受灾" />
       </label>
       <label>事件日期
-        <input v-model="evDate" type="date" />
+        <DateInput v-model="evDate" />
       </label>
       <label class="wide">事件描述（供智能匹配，将发送至大模型）
         <input v-model="evDesc" placeholder="如：主产区霜冻减产，影响花茶原料与现制茶饮、香料提取" />
