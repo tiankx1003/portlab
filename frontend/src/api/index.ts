@@ -316,6 +316,45 @@ export async function getPortfolioSummary(
   return res.data
 }
 
+// ---- arena（策略擂台）----
+export interface StrategyResultItem {
+  task_id: string
+  strategy: string
+  symbol: string
+  symbol_name: string
+  start_date: string
+  end_date: string
+  total_return_rate: number
+  annualized_return: number
+  max_drawdown: number
+  sharpe: number | null
+  buy_count: number
+  sell_count: number
+  params_summary: string
+}
+
+export interface ArenaNavSeries {
+  dates: string[]
+  nav: number[]
+}
+
+export interface ArenaData {
+  items: StrategyResultItem[]
+  nav_series: Record<string, ArenaNavSeries>
+}
+
+export async function compareArena(params: {
+  mode: 'cross_strategy' | 'cross_symbol'
+  symbol?: string
+  strategy?: string
+  symbols?: string[]
+  start?: string
+  end?: string
+}): Promise<ApiResponse<ArenaData>> {
+  const res = await http.get<ApiResponse<ArenaData>>('/arena/compare', { params })
+  return res.data
+}
+
 // ---- feedback ----
 export interface FeedbackItem {
   id: number

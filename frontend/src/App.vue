@@ -24,6 +24,7 @@ import ReleaseNotesWidget from './components/ReleaseNotesWidget.vue'
         <RouterLink to="/drawboard">回撤看板</RouterLink>
         <RouterLink to="/grid">网格交易</RouterLink>
         <RouterLink to="/portfolio">组合回测</RouterLink>
+        <RouterLink to="/arena">策略擂台</RouterLink>
         <RouterLink to="/etf-flow">ETF 流向</RouterLink>
         <RouterLink to="/valuation">估值</RouterLink>
         <RouterLink to="/event">事件看板</RouterLink>
