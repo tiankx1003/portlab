@@ -24,6 +24,7 @@ from .api import (
     health,
     ma120,
     market,
+    portfolio,
     recent,
     release_note,
     roadmap,
@@ -232,6 +233,23 @@ def _ensure_grid_tables() -> None:
         logger.warning("启动自愈（网格回测表）失败: %s", e)
 
 
+def _ensure_portfolio_tables() -> None:
+    """启动自愈：组合回测（022）两张表（calc_portfolio_nav + result_portfolio_summary）。"""
+    try:
+        from .database import Base, engine
+        from .models.portfolio import CalcPortfolioNav, ResultPortfolioSummary
+
+        Base.metadata.create_all(
+            engine,
+            tables=[
+                CalcPortfolioNav.__table__,
+                ResultPortfolioSummary.__table__,
+            ],
+        )
+    except Exception as e:  # noqa: BLE001 - 自愈失败不阻断启动
+        logger.warning("启动自愈（组合回测表）失败: %s", e)
+
+
 def _seed_builtin_themes(db) -> None:
     """内置主题（id 1~3）+ 成分股样例空表时预置（幂等）。与 init/08 同源。"""
     from sqlalchemy import func, select
@@ -273,6 +291,7 @@ async def lifespan(app: FastAPI):
     _ensure_event_tables()
     _ensure_drawboard_tables()
     _ensure_grid_tables()
+    _ensure_portfolio_tables()
     # 启动时后台预热 A 股标的目录，使名称解析（图表标题）稳定可用
     threading.Thread(target=symbol_catalog.warmup, daemon=True).start()
     yield
@@ -307,6 +326,7 @@ app.include_router(data.router, prefix="/api/data", tags=["data"])
 app.include_router(backtest.router, prefix="/api/backtest", tags=["backtest"])
 app.include_router(ma120.router, prefix="/api/backtest", tags=["backtest"])
 app.include_router(grid.router, prefix="/api/backtest", tags=["backtest"])
+app.include_router(portfolio.router, prefix="/api/backtest", tags=["backtest"])
 app.include_router(recent.router, prefix="/api/backtest", tags=["backtest"])  # /api/backtest/recent
 app.include_router(symbols.router, prefix="/api/symbols", tags=["symbols"])
 app.include_router(feedback.router, prefix="/api/feedback", tags=["feedback"])

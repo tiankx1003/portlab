@@ -1,10 +1,17 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
-import type { EventImpactData } from '../api'
 import { theme } from '../composables/useTheme'
 
-const props = defineProps<{ data: EventImpactData | null }>()
+/** 通用相关性输入：symbols_name（组合回测）或 symbols_info（事件看板）二选一提供名称。 */
+export interface CorrelationInput {
+  correlation_symbols: string[]
+  correlation_matrix: number[][]
+  symbols_name?: string[]
+  symbols_info?: { symbol: string; name: string }[]
+}
+
+const props = defineProps<{ data: CorrelationInput | null }>()
 
 const el = ref<HTMLDivElement>()
 let chart: echarts.ECharts | null = null
@@ -21,11 +28,12 @@ function themeColors() {
   }
 }
 
-function buildOption(d: EventImpactData): echarts.EChartsOption {
+function buildOption(d: CorrelationInput): echarts.EChartsOption {
   const tc = themeColors()
   const syms = d.correlation_symbols
-  const labels = syms.map((s) => {
-    const info = d.symbols_info.find((x) => x.symbol === s)
+  const labels = syms.map((s, i) => {
+    if (d.symbols_name && d.symbols_name[i]) return d.symbols_name[i]
+    const info = d.symbols_info?.find((x) => x.symbol === s)
     return info?.name || s
   })
   const data: [number, number, number][] = []

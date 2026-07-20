@@ -4,6 +4,7 @@ from .drawboard import CalcDrawboardBacktest, ResultDrawboardSummary
 from .event import Event
 from .feedback import Feedback
 from .grid import CalcGridBacktest, ResultGridSummary
+from .portfolio import CalcPortfolioNav, ResultPortfolioSummary
 from .llm_config import LlmConfig
 from .raw import RawPriceDaily
 from .raw_tushare import RawPriceDailyTushare
@@ -19,10 +20,12 @@ __all__ = [
     "CalcMa120Backtest",
     "CalcDrawboardBacktest",
     "CalcGridBacktest",
+    "CalcPortfolioNav",
     "ResultDcaSummary",
     "ResultMa120Summary",
     "ResultDrawboardSummary",
     "ResultGridSummary",
+    "ResultPortfolioSummary",
     "Feedback",
     "ReleaseNote",
     "Event",

@@ -234,6 +234,88 @@ export async function getGridSummary(taskId: string): Promise<ApiResponse<GridSu
   return res.data
 }
 
+// ---- portfolio backtest ----
+export interface PortfolioParams {
+  symbols: string[]
+  start_date: string
+  end_date: string
+  mode: 'fixed' | 'frontier'
+  weights: number[]
+  rebalance: 'monthly' | 'quarterly' | 'none'
+  rf: number
+  allow_short: boolean
+}
+
+export interface FrontierPoint {
+  weights: number[]
+  ret: number
+  volatility: number
+  sharpe: number
+}
+
+export interface SingleAssetPoint {
+  symbol: string
+  name: string
+  ret: number
+  volatility: number
+  sharpe: number
+}
+
+export interface FrontierData {
+  volatilities: number[]
+  returns: number[]
+  sharpes: number[]
+  weights_matrix: number[][]
+  single_assets: SingleAssetPoint[]
+  min_variance: FrontierPoint
+  max_sharpe: FrontierPoint
+  opt_weights: number[]
+}
+
+export interface PortfolioChartData {
+  dates: string[]
+  nav: number[]
+  drawdown: number[]
+  benchmark_nav: (number | null)[]
+  benchmark_name: string
+  correlation_symbols: string[]
+  correlation_matrix: number[][]
+  mode: string
+  symbols_name: string[]
+  frontier: FrontierData | null
+}
+
+export interface PortfolioSummaryData {
+  symbols: string[]
+  mode: string
+  weights: number[]
+  rebalance: string
+  annual_return: number
+  annual_volatility: number
+  sharpe: number
+  max_drawdown: number
+  total_return: number
+  rf: number
+  allow_short: boolean
+}
+
+export async function createPortfolio(p: PortfolioParams): Promise<ApiResponse<{ task_id: string }>> {
+  const res = await http.post<ApiResponse<{ task_id: string }>>('/backtest/portfolio', p)
+  return res.data
+}
+
+export async function getPortfolioChart(taskId: string): Promise<ApiResponse<PortfolioChartData>> {
+  const res = await http.get<ApiResponse<PortfolioChartData>>(`/backtest/portfolio/${taskId}/chart`)
+  return res.data
+}
+
+export async function getPortfolioSummary(
+  taskId: string,
+): Promise<ApiResponse<PortfolioSummaryData>> {
+  const res = await http.get<ApiResponse<PortfolioSummaryData>>(`/backtest/portfolio/${taskId}/summary`)
+  return res.data
+}
+
 // ---- feedback ----
 export interface FeedbackItem {
   id: number
