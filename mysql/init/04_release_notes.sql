@@ -18,6 +18,12 @@ CREATE TABLE IF NOT EXISTS release_notes (
 
 -- 预置最近迭代种子（幂等：title+released_at 唯一，重复执行不产生重复行）
 INSERT INTO release_notes (title, type, detail, released_at, created_at) VALUES
+('看板体验优化',               'improvement', '进入即用默认参数渲染图表；日期输入年满 4 位自动进月份（全看板统一组件，保留日历选择）；左上角品牌图标放大', '2026-07-20', UTC_TIMESTAMP()),
+('估值温度计修复',             'bugfix',      '表盘中心 {value}% 占位符失效；历史 PE 图左轴名/「当前」标线标签裁剪出界', '2026-07-20', UTC_TIMESTAMP()),
+('回撤看板：复利再投 + 收益率口径修复', 'feature', '新增复利再投（净资产高水位放大、现金约束防膨胀）；累计投入/收益率改资金循环口径，不再被循环资金压低', '2026-07-20', UTC_TIMESTAMP()),
+('策略擂台（横向对比）',       'feature',     '同标的多策略 / 同策略多标的对比，归一化净值 + 指标表，消费四策略 summary', '2026-07-20', UTC_TIMESTAMP()),
+('组合回测（含有效前沿）',     'feature',     '多标的组合收益/回撤/波动 + 马科维茨有效前沿求最优权重', '2026-07-20', UTC_TIMESTAMP()),
+('网格交易策略回测',           'feature',     '中枢+间距双向触发吃震荡；图表画网格 markLine', '2026-07-20', UTC_TIMESTAMP()),
 ('事件冲击产业链看板',         'feature',     '事件→标的池→产业链关系图 + 波动对比 + 相关性热力图；LLM 智能匹配（OpenAI 兼容协议）', '2026-07-19', UTC_TIMESTAMP()),
 ('估值温度计 / 估值分位看板',   'feature',     '指数 PE 历史分位 + 温度计仪表，回答「现在贵不贵」（沪深300/中证500/中证1000/上证50/创业板指）', '2026-07-18', UTC_TIMESTAMP()),
 ('回测直达 / 更新日志 CLI / Tushare 限频治理', 'improvement', '?task= 直达已有回测结果；release_notes CLI 免 SQL 维护；Tushare 分段拉取+节流+重试', '2026-07-18', UTC_TIMESTAMP()),
