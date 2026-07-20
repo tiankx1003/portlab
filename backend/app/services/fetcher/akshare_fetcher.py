@@ -13,6 +13,7 @@ symbol 约定：
 """
 
 import os
+import time
 
 os.environ.setdefault("TQDM_DISABLE", "1")  # 屏蔽腾讯接口内部的 tqdm 进度条
 
@@ -40,20 +41,23 @@ class AkShareFetcher(DataFetcher):
 
     def fetch_daily(self, symbol: str, start_date: date, end_date: date) -> list[PriceBar]:
         errors: list[str] = []
-        for impl in (_fetch_em, _fetch_tx):
+        # (实现, 重试次数)：东财在受限网络固定阻断，不重试省时；
+        # 腾讯是主通路，重试 2 次吸收间歇抖动（0.6s / 1.2s 退避）。
+        for impl, retries in ((_fetch_em, 0), (_fetch_tx, 2)):
             label = impl.__name__
-            try:
-                bars = impl(symbol, start_date, end_date)
-            except FetchError as e:
-                errors.append(f"{label}: {e}")
-                continue
-            except Exception as e:  # noqa: BLE001
-                errors.append(f"{label}: {type(e).__name__}: {e}")
-                continue
-            if bars:
-                return bars
-            errors.append(f"{label}: 返回空")
-
+            for attempt in range(retries + 1):
+                try:
+                    bars = impl(symbol, start_date, end_date)
+                except FetchError as e:
+                    errors.append(f"{label}: {e}")
+                except Exception as e:  # noqa: BLE001
+                    errors.append(f"{label}: {type(e).__name__}: {e}")
+                else:
+                    if bars:
+                        return bars
+                    errors.append(f"{label}: 返回空")
+                if attempt < retries:
+                    time.sleep(0.6 * (attempt + 1))
         raise FetchError(f"所有数据源均失败 ({symbol}): " + " | ".join(errors))
 
 
