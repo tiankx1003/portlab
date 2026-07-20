@@ -23,7 +23,7 @@
 | 017 | [ETF 资金流向图表](docs/tasks/017-etf-fund-flow.md) | ETF 份额/北向/主力三信号（Tushare），观察国家队动向 | ☑ |
 | 018 | [事件冲击产业链看板](docs/tasks/018-event-impact-dashboard.md) | 事件→标的池→产业链关系图+波动对比+相关性热力图；LLM 智能匹配（OpenAI 兼容） | ☑ |
 | 019 | [drawboard v2：补齐 sell_mode + DB 持久化 + 参数纠正](docs/tasks/019-drawboard-v2.md) | 回撤看板迭代：sell_mode 三模式 + 两表幂等 + 默认值对齐 015 | ☑ |
-| 020 | [网格交易策略回测](docs/tasks/020-grid-trading.md) | 中枢+间距双向触发吃震荡；图表画网格 markLine，补齐趋势/恐慌/震荡三件套 | ☐ |
+| 020 | [网格交易策略回测](docs/tasks/020-grid-trading.md) | 中枢+间距双向触发吃震荡；图表画网格 markLine，补齐趋势/恐慌/震荡三件套 | ☑ |
 | 021 | [股息率 / DCF 估值回测](docs/tasks/021-dividend-dcf-backtest.md) | 历史相同估值买入回测+胜率分布；依赖016股息率历史，PE分位降级 | ☐ |
-| 022 | [组合回测（含有效前沿/最优权重）](docs/tasks/022-portfolio-backtest.md) | 多标的组合收益/回撤/波动 + 马科维茨有效前沿求最优权重 | ☐ |
-| 023 | [策略擂台（横向对比）](docs/tasks/023-strategy-arena.md) | 同标的多策略/同策略多标的对比，归一化净值+指标表，消费四策略 summary | ☐ |
+| 022 | [组合回测（含有效前沿/最优权重）](docs/tasks/022-portfolio-backtest.md) | 多标的组合收益/回撤/波动 + 马科维茨有效前沿求最优权重 | ☑ |
+| 023 | [策略擂台（横向对比）](docs/tasks/023-strategy-arena.md) | 同标的多策略/同策略多标的对比，归一化净值+指标表，消费四策略 summary | ☑ |
