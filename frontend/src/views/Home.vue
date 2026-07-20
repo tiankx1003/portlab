@@ -147,13 +147,18 @@ async function refreshMarket() {
 }
 
 function openBacktest(item: RecentBacktestItem) {
-  const path = item.type === 'ma120' ? '/ma120' : item.type === 'drawboard' ? '/drawboard' : '/backtest'
+  const path =
+    item.type === 'ma120' ? '/ma120'
+    : item.type === 'drawboard' ? '/drawboard'
+    : item.type === 'grid' ? '/grid'
+    : '/backtest'
   router.push({ path, query: { task: item.task_id } })
 }
 
 function chipClass(type: string): string {
   if (type === 'ma120') return 'c-ma120'
   if (type === 'drawboard') return 'c-drawboard'
+  if (type === 'grid') return 'c-grid'
   return 'c-dca'
 }
 
@@ -663,6 +668,10 @@ onMounted(loadAll)
 .c-drawboard {
   background: color-mix(in srgb, #5470c6 20%, transparent);
   color: #3a5bbf;
+}
+.c-grid {
+  background: color-mix(in srgb, #3ba272 20%, transparent);
+  color: #2f8a5f;
 }
 .t-feature {
   background: color-mix(in srgb, #3ba272 18%, transparent);

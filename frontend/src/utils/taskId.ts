@@ -134,3 +134,40 @@ export function parseDrawboardTaskId(taskId: string): DrawboardTaskParts | null 
     sellMode: sellMode as DrawboardTaskParts['sellMode'],
   }
 }
+
+export interface GridTaskParts {
+  symbol: string
+  startDate: string
+  endDate: string
+  centerPrice: number
+  stepPct: number
+  amountPerLevel: number
+  nLevelsAbove: number
+  nLevelsBelow: number
+  boundMode: 'hold' | 'stop' | 'reset'
+}
+
+/**
+ * grid_{symbol}_{start}_{end}_{center}_{step_pct}_{amount}_{n_above}_{n_below}_{bound_mode}
+ * 与后端 services.compute.grid.make_task_id 一致；非 akshare 源末尾追加 _{source}。
+ */
+export function parseGridTaskId(taskId: string): GridTaskParts | null {
+  const parts = stripSourceSuffix(taskId.split('_'))
+  if (parts.length < 10 || parts[0] !== 'grid') return null
+  const [, symbol, start, end, center, stepPct, amount, nAbove, nBelow, mode] = parts
+  if (!['hold', 'stop', 'reset'].includes(mode)) return null
+  const sd = toIsoDate(start)
+  const ed = toIsoDate(end)
+  if (!sd || !ed) return null
+  return {
+    symbol,
+    startDate: sd,
+    endDate: ed,
+    centerPrice: Number(center),
+    stepPct: Number(stepPct),
+    amountPerLevel: Number(amount),
+    nLevelsAbove: Number(nAbove),
+    nLevelsBelow: Number(nBelow),
+    boundMode: mode as GridTaskParts['boundMode'],
+  }
+}

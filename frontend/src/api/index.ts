@@ -161,6 +161,79 @@ export async function getMa120Summary(
   return res.data
 }
 
+// ---- grid backtest ----
+export type BoundMode = 'hold' | 'stop' | 'reset'
+
+export interface GridParams {
+  symbol: string
+  start_date: string
+  end_date: string
+  center_price: number
+  step_pct: number
+  amount_per_level: number
+  n_levels_above: number
+  n_levels_below: number
+  bound_mode: BoundMode
+}
+
+export interface GridPoint {
+  date: string
+  price: number
+  amount: number
+}
+
+export interface GridChartData {
+  dates: string[]
+  close_prices: number[]
+  market_values: number[]
+  total_cost: number[]
+  pnl: number[]
+  return_rates: number[]
+  holding: number[]
+  signals: string[]
+  grid_levels: number[]
+  buy_points: GridPoint[]
+  sell_points: GridPoint[]
+  grid_index: number[]
+  benchmark_returns: (number | null)[]
+  benchmark_name: string
+  symbol_name: string
+}
+
+export interface GridSummaryData {
+  total_invested: number
+  final_value: number
+  total_pnl: number
+  total_return_rate: number
+  annualized_return: number
+  max_drawdown: number
+  buy_count: number
+  sell_count: number
+  grid_profit: number
+  cycle_count: number
+  center_price: number
+  step_pct: number
+  amount_per_level: number
+  n_levels_above: number
+  n_levels_below: number
+  bound_mode: string
+}
+
+export async function createGrid(p: GridParams): Promise<ApiResponse<{ task_id: string }>> {
+  const res = await http.post<ApiResponse<{ task_id: string }>>('/backtest/grid', p)
+  return res.data
+}
+
+export async function getGridChart(taskId: string): Promise<ApiResponse<GridChartData>> {
+  const res = await http.get<ApiResponse<GridChartData>>(`/backtest/grid/${taskId}/chart`)
+  return res.data
+}
+
+export async function getGridSummary(taskId: string): Promise<ApiResponse<GridSummaryData>> {
+  const res = await http.get<ApiResponse<GridSummaryData>>(`/backtest/grid/${taskId}/summary`)
+  return res.data
+}
+
 // ---- feedback ----
 export interface FeedbackItem {
   id: number
@@ -237,7 +310,7 @@ export async function toggleTushare(enabled: boolean): Promise<ApiResponse<DataS
 // ---- home: recent backtests ----
 export interface RecentBacktestItem {
   task_id: string
-  type: 'dca' | 'ma120' | 'drawboard'
+  type: 'dca' | 'ma120' | 'drawboard' | 'grid'
   symbol: string
   symbol_name: string
   return_rate: number

@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models.drawboard import ResultDrawboardSummary
+from ..models.grid import ResultGridSummary
 from ..models.result import ResultDcaSummary, ResultMa120Summary
 from ..schemas.common import ApiResponse
 from ..schemas.recent import RecentBacktestItem
@@ -66,6 +67,18 @@ def list_recent(limit: int = 5, db: Session = Depends(get_db)) -> ApiResponse:
         )
     ).all():
         merged.append(("drawboard", r.task_id, r.symbol, float(r.total_return_rate),
+                       r.start_date, r.end_date))
+
+    for r in db.execute(
+        select(
+            ResultGridSummary.task_id,
+            ResultGridSummary.symbol,
+            ResultGridSummary.total_return_rate,
+            ResultGridSummary.start_date,
+            ResultGridSummary.end_date,
+        )
+    ).all():
+        merged.append(("grid", r.task_id, r.symbol, float(r.total_return_rate),
                        r.start_date, r.end_date))
 
     # end_date 倒序（同日再按 task_id 稳定排序）

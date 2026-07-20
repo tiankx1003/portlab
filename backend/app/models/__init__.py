@@ -3,6 +3,7 @@ from .data_source_config import DataSourceConfig
 from .drawboard import CalcDrawboardBacktest, ResultDrawboardSummary
 from .event import Event
 from .feedback import Feedback
+from .grid import CalcGridBacktest, ResultGridSummary
 from .llm_config import LlmConfig
 from .raw import RawPriceDaily
 from .raw_tushare import RawPriceDailyTushare
@@ -17,9 +18,11 @@ __all__ = [
     "CalcDcaBacktest",
     "CalcMa120Backtest",
     "CalcDrawboardBacktest",
+    "CalcGridBacktest",
     "ResultDcaSummary",
     "ResultMa120Summary",
     "ResultDrawboardSummary",
+    "ResultGridSummary",
     "Feedback",
     "ReleaseNote",
     "Event",
