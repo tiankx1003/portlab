@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import MetricCard from '../components/MetricCard.vue'
+import DateInput from '../components/DateInput.vue'
 import DrawboardChart from '../components/DrawboardChart.vue'
 import {
   getDrawboardChart,
@@ -25,7 +26,8 @@ const COLOR_DOWN = '#3ba272'
 const symbol = ref('512890')
 const startDate = ref('2022-01-01')
 const endDate = ref(new Date().toISOString().slice(0, 10))
-const sellMode = ref<DrawSellMode>('none')
+const sellMode = ref<DrawSellMode>('new_high')
+const reinvest = ref(true)
 const buyAmount = ref(10000)
 const addAmount = ref(5000)
 const threshold = ref(10)
@@ -128,6 +130,7 @@ async function runBacktest() {
       buy_amount: buyAmount.value,
       add_amount: addAmount.value,
       sell_mode: sellMode.value,
+      reinvest: reinvest.value,
     })
     if (r.code !== 0) {
       errorMsg.value = r.message
@@ -163,6 +166,7 @@ async function save() {
       buy_amount: buyAmount.value,
       add_amount: addAmount.value,
       sell_mode: sellMode.value,
+      reinvest: reinvest.value,
     })
     if (r.code !== 0) {
       errorMsg.value = r.message
@@ -194,6 +198,7 @@ async function loadTask(taskId: string) {
       buyAmount.value = parsed.buyAmount
       addAmount.value = parsed.addAmount
       sellMode.value = parsed.sellMode
+      reinvest.value = parsed.reinvest
     }
     const [c, s] = await Promise.all([getDrawboardChart(taskId), getDrawboardSummary(taskId)])
     if (c.code === 0) chartData.value = c.data
@@ -209,6 +214,7 @@ async function loadTask(taskId: string) {
 onMounted(() => {
   const t = route.query.task
   if (typeof t === 'string' && t) loadTask(t)
+  else runBacktest() // 进入即用默认参数渲染；改参数后点「开始回测」重跑
 })
 
 const chartTitle = computed(() => {
@@ -259,6 +265,15 @@ function pnlColor(n: number | undefined | null): string {
           </select>
         </label>
 
+        <label
+          class="check-label"
+          :class="{ disabled: sellMode === 'none' }"
+          :title="sellMode === 'none' ? '需先开启卖出（新高/半仓）才会复利再投' : '开启后，卖出回款的盈利按净资产高水位放大后续买入金额（盈利再投）'"
+        >
+          <input v-model="reinvest" type="checkbox" :disabled="sellMode === 'none'" />
+          <span>复利再投</span>
+        </label>
+
         <label>
           首笔金额（元）
           <input v-model.number="buyAmount" type="number" min="100" step="100" />
@@ -281,11 +296,11 @@ function pnlColor(n: number | undefined | null): string {
       <div class="form-row">
         <label>
           起始日期
-          <input v-model="startDate" type="date" />
+          <DateInput v-model="startDate" />
         </label>
         <label>
           结束日期
-          <input v-model="endDate" type="date" />
+          <DateInput v-model="endDate" />
         </label>
         <label>
           回撤阈值 %
@@ -309,7 +324,7 @@ function pnlColor(n: number | undefined | null): string {
 
     <!-- 指标卡片（克隆 MA120，含「买卖次数」合并卡） -->
     <div v-if="summary" class="cards">
-      <MetricCard label="累计投入" :value="fmt(summary.total_invested)" />
+      <MetricCard label="峰值占用" :value="fmt(summary.total_invested)" />
       <MetricCard label="当前市值" :value="fmt(summary.final_value)" />
       <MetricCard label="累计收益" :value="fmt(summary.total_pnl)" :color="pnlColor(summary.total_pnl)" />
       <MetricCard
@@ -365,6 +380,29 @@ label {
   font-size: 13px;
   color: var(--text-secondary);
   gap: 4px;
+}
+/* 复利开关：横向勾选框，与其它纵向表单项并排 */
+.check-label {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-end;
+  margin-bottom: 9px;
+  cursor: pointer;
+  user-select: none;
+}
+.check-label input {
+  min-width: auto;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+.check-label span {
+  white-space: nowrap;
+}
+.check-label.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .symbol-label {
   min-width: 260px;

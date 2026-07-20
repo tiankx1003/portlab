@@ -109,17 +109,20 @@ export interface DrawboardTaskParts {
   buyAmount: number
   addAmount: number
   sellMode: 'none' | 'new_high' | 'partial'
+  reinvest: boolean
 }
 
 /**
- * db_{symbol}_{start}_{end}_{threshold}_{step}_{buy_amount}_{add_amount}_{sell_mode}
+ * db_{symbol}_{start}_{end}_{threshold}_{step}_{buy_amount}_{add_amount}_{sell_mode}_{reinvest}
  * 与后端 services/drawboard.make_task_id 一致；非 akshare 源末尾追加 _{source}。
+ * 旧 id（无 reinvest 段，9 段）按 reinvest=false 兜底，保证向后兼容。
  */
 export function parseDrawboardTaskId(taskId: string): DrawboardTaskParts | null {
   const parts = stripSourceSuffix(taskId.split('_'))
   if (parts.length < 9 || parts[0] !== 'db') return null
   const [, symbol, start, end, threshold, step, buyAmount, addAmount, sellMode] = parts
   if (!['none', 'new_high', 'partial'].includes(sellMode)) return null
+  const reinvest = parts.length >= 10 ? parts[9] === '1' : false
   const sd = toIsoDate(start)
   const ed = toIsoDate(end)
   if (!sd || !ed) return null
@@ -132,6 +135,7 @@ export function parseDrawboardTaskId(taskId: string): DrawboardTaskParts | null 
     buyAmount: Number(buyAmount),
     addAmount: Number(addAmount),
     sellMode: sellMode as DrawboardTaskParts['sellMode'],
+    reinvest,
   }
 }
 

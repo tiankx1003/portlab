@@ -76,6 +76,7 @@ class DrawboardRequest(BaseModel):
     buy_amount: float = Field(10000.0, gt=0, description="首次买入金额")
     add_amount: float = Field(5000.0, gt=0, description="每次加仓金额")
     sell_mode: Literal["none", "new_high", "partial"] = "new_high"
+    reinvest: bool = Field(False, description="复利：按净资产高水位放大买入金额（盈利再投）")
 
     @field_validator("symbol")
     @classmethod

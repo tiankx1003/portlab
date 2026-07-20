@@ -88,7 +88,8 @@ class _DayRow:
     holding: float
     cum_invested: float
     cum_proceeds: float
-    market_value: float
+    peak_capital: float  # 峰值自有资金占用 = max_t max(0, cum_invested - cum_proceeds)
+    market_value: float  # 净资产 = 账户现金 + 持仓市值（市值线 / 回撤基准）
     pnl: float
     return_rate: float
     drawdown: float  # %
@@ -102,7 +103,7 @@ class _SimResult:
     sell_points: list[dict]
     market_values: list[float]
     cashflows: list[tuple[date, float]]
-    total_invested: float
+    peak_capital: float  # 末期峰值自有资金占用（= 卡片「累计投入」/ 收益率分母）
     final_value: float
 
 
@@ -113,8 +114,19 @@ def _simulate(
     buy_amount: float,
     add_amount: float,
     sell_mode: str = "new_high",
+    reinvest: bool = False,
 ) -> _SimResult:
-    """回撤阈值金字塔买入 + 按 sell_mode 卖出。"""
+    """回撤阈值金字塔买入 + 按 sell_mode 卖出。
+
+    会计口径（资金循环）：卖出回款留在账户里可供下次买入复用，故「投入」按
+    **峰值自有资金占用** (``peak_capital`` = max_t max(0, cum_invested - cum_proceeds)) 计，
+    收益率 = 盈亏 / peak_capital。市值 = 净资产 = 账户现金 + 持仓市值，只在价格变动时移动。
+    绝对盈亏与「每笔买入皆新增注资」的毛口径恒等（回收资金在 cum_invested/cum_proceeds 两侧等量出现，做差抵消）。
+
+    ``reinvest``：复利模式，买入金额按 **净资产高水位 / 初始本金** 放大（盈利再投），
+    但增量部分只用账户现金（回收的盈利）承担——基础金额照常可注资、封顶到非复利峰值，
+    故峰值占用不会膨胀。仅在发生过卖出后生效（``cum_proceeds > 0``）；``sell_mode='none'`` 时为空操作。
+    """
     t = Decimal(threshold_pct) / Decimal(100) * Decimal(-1)  # 阈值转为负小数
     step = Decimal(step_pct) / Decimal(100)
     a = Decimal(str(buy_amount))
@@ -122,8 +134,10 @@ def _simulate(
 
     running_max = Decimal(0)
     holding = Decimal(0)
-    cum_invested = Decimal(0)
-    cum_proceeds = Decimal(0)
+    cum_invested = Decimal(0)   # Σ 买入（毛），审计 / 推导用
+    cum_proceeds = Decimal(0)   # Σ 卖出回款
+    peak_capital = Decimal(0)   # 峰值自有资金占用（收益率分母 / 成本线）
+    peak_tna = Decimal(0)       # 峰值净资产（复利放大基准）
     # 买入阶梯锚定在「理想档位」而非实际买入回撤：首笔 -threshold，此后每 -step。
     # 避免单日缺口（如从 -6% 直跳 -12%）把锚点拉深，导致中间档位（-12%）再也不触发。
     bought = False
@@ -144,7 +158,18 @@ def _simulate(
 
         # 买入：dd 跌破下一个未买的档位（首笔 -threshold，之后每 -step 一档）
         if dd <= next_buy_dd:
-            amt = a if not bought else m
+            base = a if not bought else m
+            # 复利（现金约束）：基础金额 base 照常可注资（封顶到非复利峰值），
+            # 复利增量 = base × (净资产高水位 / 初始本金 − 1) 只用账户现金（回收的盈利）放大。
+            # 因 extra ≤ 可用现金 − base ⇒ 本次买入不触发新增注资，峰值占用永不膨胀；
+            # 密集金字塔（小 step）下也不会像「按总净资产放大」那样滚出天量占用。
+            if reinvest and cum_proceeds > 0 and peak_tna > 0:
+                compounded_extra = base * (peak_tna / a - 1)  # 复利放大的增量（≥0）
+                available_cash = peak_capital - cum_invested + cum_proceeds  # 账户现金（≥0）
+                extra = min(compounded_extra, max(available_cash - base, Decimal(0)))
+                amt = base + extra
+            else:
+                amt = base
             if amt > 0:
                 shares = amt / price
                 holding += shares
@@ -154,7 +179,6 @@ def _simulate(
                 action_amount = amt
                 signal = "buy"
                 buys.append({"date": d, "price": float(price), "amount": float(amt)})
-                cashflows.append((d, -float(amt)))
 
         # 卖出：回撤归 0（新高）且持仓 → 按 sell_mode 处理
         if holding > 0 and dd >= 0:
@@ -179,9 +203,22 @@ def _simulate(
                 holding -= sell_shares
                 # 不重置阶梯，下次跌破仍可加仓
 
-        mv = holding * price + cum_proceeds
-        pnl = mv - cum_invested
-        rr = float(pnl / cum_invested * 100) if cum_invested > 0 else 0.0
+        # 净占用创新高 → 增量即「新增外部注资」（回收款没覆盖到的那部分）。
+        # XIRR 只记真注资，避免把循环资金重复计入而压低年化。
+        net_at_risk = cum_invested - cum_proceeds
+        if net_at_risk > peak_capital:
+            cashflows.append((d, -float(net_at_risk - peak_capital)))
+            peak_capital = net_at_risk
+
+        # 净资产（市值线 + 回撤基准）：账户现金 = 峰值占用 − 累计买入 + 累计回款（≥0）。
+        # 买入/卖出本身不动净资产（资金在现金与持仓间平移），只随价格走 → 回撤无买入跳升。
+        tna = (peak_capital - cum_invested + cum_proceeds) + holding * price
+        if tna > peak_tna:
+            peak_tna = tna
+
+        mv = tna
+        pnl = mv - peak_capital  # == cum_proceeds - cum_invested + holding*price（与毛口径恒等）
+        rr = float(pnl / peak_capital * 100) if peak_capital > 0 else 0.0
 
         rows.append(
             _DayRow(
@@ -191,6 +228,7 @@ def _simulate(
                 holding=float(holding),
                 cum_invested=float(cum_invested),
                 cum_proceeds=float(cum_proceeds),
+                peak_capital=float(peak_capital),
                 market_value=float(mv),
                 pnl=float(pnl),
                 return_rate=rr,
@@ -202,6 +240,7 @@ def _simulate(
     market_values = [r.market_value for r in rows]
     final_value = market_values[-1] if market_values else 0.0
     if rows:
+        # XIRR 末值 = 账户整体变现（持仓市值 + 账户现金）= 末日净资产
         cashflows.append((rows[-1].trade_date, final_value))
 
     return _SimResult(
@@ -210,7 +249,7 @@ def _simulate(
         sell_points=sells,
         market_values=market_values,
         cashflows=cashflows,
-        total_invested=float(cum_invested),
+        peak_capital=float(peak_capital),
         final_value=final_value,
     )
 
@@ -219,7 +258,7 @@ def _build_summary_dict(
     sim: _SimResult, sell_mode: str, dates: list[date]
 ) -> dict:
     """汇总指标（落库与实时返回共用）。"""
-    total_invested = sim.total_invested
+    total_invested = sim.peak_capital  # 卡片「累计投入」= 峰值自有资金占用
     final_value = sim.final_value
     total_pnl = final_value - total_invested
     trr = (total_pnl / total_invested * 100) if total_invested > 0 else 0.0
@@ -274,7 +313,7 @@ def _empty_result() -> dict:
 def run_drawdown_backtest(
     db: Session, symbol: str, start: date, end: date,
     threshold: float, step: float, buy_amount: float, add_amount: float,
-    sell_mode: str = "new_high", source: str | None = None,
+    sell_mode: str = "new_high", reinvest: bool = False, source: str | None = None,
 ) -> dict:
     """按回撤阈值跑金字塔策略，返回完整 chart 数据 + 汇总（不落库，供实时重算）。"""
     src = source or resolve_source(db)
@@ -282,14 +321,14 @@ def run_drawdown_backtest(
     if not days:
         return _empty_result()
 
-    sim = _simulate(days, threshold, step, buy_amount, add_amount, sell_mode)
+    sim = _simulate(days, threshold, step, buy_amount, add_amount, sell_mode, reinvest)
     dates = [r.trade_date for r in sim.rows]
     bench_returns, bench_name = compute_benchmark_returns(db, dates, start, end, source=src)
 
     return {
         "dates": dates,
         "market_values": [r.market_value for r in sim.rows],
-        "total_cost": [r.cum_invested for r in sim.rows],
+        "total_cost": [r.peak_capital for r in sim.rows],
         "pnl": [r.pnl for r in sim.rows],
         "return_rates": [r.return_rate for r in sim.rows],
         "close_prices": [r.close for r in sim.rows],
@@ -318,6 +357,7 @@ class DrawboardParams:
     buy_amount: float
     add_amount: float
     sell_mode: str = "new_high"
+    reinvest: bool = False
     source: str = "akshare"  # 非 akshare 时 task_id 追加后缀，使两源结果互不覆盖
 
 
@@ -325,11 +365,12 @@ def make_task_id(p: DrawboardParams) -> str:
     """由全部参数确定性生成 task_id，保证幂等。
 
     默认源（akshare）task_id 不带后缀；非 akshare 源末尾追加 ``_{source}``，
-    与 MA120/DCA 一致。
+    与 MA120/DCA 一致。``reinvest`` 末尾追加 ``_1``/``_0`` 标记。
     """
     base = (
         f"db_{p.symbol}_{p.start_date:%Y%m%d}_{p.end_date:%Y%m%d}"
         f"_{p.threshold}_{p.step}_{p.buy_amount}_{p.add_amount}_{p.sell_mode}"
+        f"_{int(p.reinvest)}"
     )
     return f"{base}_{p.source}" if p.source != "akshare" else base
 
@@ -346,7 +387,7 @@ def run_backtest(db: Session, p: DrawboardParams) -> str:
         )
 
     task_id = make_task_id(p)
-    sim = _simulate(days, p.threshold, p.step, p.buy_amount, p.add_amount, p.sell_mode)
+    sim = _simulate(days, p.threshold, p.step, p.buy_amount, p.add_amount, p.sell_mode, p.reinvest)
     dates = [r.trade_date for r in sim.rows]
 
     calc_rows = [

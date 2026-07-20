@@ -60,13 +60,14 @@ def backtest(
     buy_amount: float = 10000.0,  # 首次买入金额
     add_amount: float = 5000.0,  # 每次加仓金额（v2 纠正，v1 为 10000）
     sell_mode: str = "new_high",  # none/new_high/partial（v2 新增，默认保留 v1 行为）
+    reinvest: bool = False,  # 复利：盈利再投（按净资产高水位放大买入金额）
     db: Session = Depends(get_db),
 ) -> ApiResponse:
     """实时重算（不落库）：加 sell_mode、纠正默认值，供「开始回测」按钮快速响应。"""
     if sell_mode not in SELL_MODES:
         return ApiResponse.error(message=f"不支持的卖出方式: {sell_mode}（可选 none/new_high/partial）")
     raw = run_drawdown_backtest(
-        db, symbol, start, end, threshold, step, buy_amount, add_amount, sell_mode
+        db, symbol, start, end, threshold, step, buy_amount, add_amount, sell_mode, reinvest
     )
     data = DrawBacktestResult(**raw)
     return ApiResponse.ok(data=data)
@@ -85,6 +86,7 @@ def save(req: DrawboardRequest, db: Session = Depends(get_db)) -> ApiResponse:
         buy_amount=req.buy_amount,
         add_amount=req.add_amount,
         sell_mode=req.sell_mode,
+        reinvest=req.reinvest,
         source=src,
     )
     task_id = make_task_id(params)
@@ -129,6 +131,10 @@ def get_chart(task_id: str, db: Session = Depends(get_db)) -> ApiResponse:
 
     buy_points: list[DrawPoint] = []
     sell_points: list[DrawPoint] = []
+    # 成本线 = 峰值自有资金占用（资金循环口径）：从已落库的 cum_invested/cum_proceeds
+    # 跑累计 max(0, cum_invested - cum_proceeds)，无需额外列。
+    total_cost: list[float] = []
+    peak_capital = 0.0
     for r in rows:
         if r.signal == "buy":
             buy_points.append(
@@ -138,11 +144,15 @@ def get_chart(task_id: str, db: Session = Depends(get_db)) -> ApiResponse:
             sell_points.append(
                 DrawPoint(date=r.trade_date, price=float(r.close), amount=float(r.action_amount))
             )
+        net_at_risk = float(r.cum_invested) - float(r.cum_proceeds)
+        if net_at_risk > peak_capital:
+            peak_capital = net_at_risk
+        total_cost.append(peak_capital)
 
     data = DrawboardChartData(
         dates=trade_dates,
         market_values=[float(r.market_value) for r in rows],
-        total_cost=[float(r.cum_invested) for r in rows],
+        total_cost=total_cost,
         pnl=[float(r.pnl) for r in rows],
         return_rates=[float(r.return_rate) for r in rows],
         close_prices=[float(r.close) for r in rows],

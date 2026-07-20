@@ -103,7 +103,7 @@ function buildOption(d: DrawboardChartData): echarts.EChartsOption {
       itemStyle: { color: '#5470c6' }, lineStyle: { width: 2 },
     },
     {
-      name: '成本', type: 'line', yAxisIndex: 0,
+      name: '占用本金', type: 'line', yAxisIndex: 0,
       data: d.total_cost, symbol: 'none',
       itemStyle: { color: '#9aa4b2' }, lineStyle: { type: 'dashed', width: 1 },
     },
@@ -148,7 +148,7 @@ function buildOption(d: DrawboardChartData): echarts.EChartsOption {
       },
     },
   ]
-  const legendData = ['市值', '成本', '亏损', '盈利', '收益率', '收盘价', '回撤']
+  const legendData = ['市值', '占用本金', '亏损', '盈利', '收益率', '收盘价', '回撤']
   if (hasBench) {
     legendData.push(d.benchmark_name)
     series.push({
@@ -200,7 +200,7 @@ function buildOption(d: DrawboardChartData): echarts.EChartsOption {
           `<br/>价格：${f2(close)}` +
           `<br/>回撤：<span style="color:${COLOR_DOWN}">${f2(dd)}%</span>　阈值：<span>${props.threshold}%</span>` +
           `<br/>持仓：${f2(hold)}` +
-          `<br/>市值：${f2(mv)}　成本：${f2(cost)}` +
+          `<br/>市值：${f2(mv)}　占用本金：${f2(cost)}` +
           `<br/>盈亏：<span style="color:${pnlColor};font-weight:600">${pnl >= 0 ? '+' : ''}${f2(pnl)}</span>` +
           `　收益率：<span style="color:${rateColor};font-weight:600">${f2(rate)}%</span>` +
           (hasBench && bench != null

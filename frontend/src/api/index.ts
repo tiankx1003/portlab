@@ -564,6 +564,7 @@ export interface DrawboardParams {
   buy_amount: number
   add_amount: number
   sell_mode: DrawSellMode
+  reinvest: boolean
 }
 
 export async function getDrawdownSeries(
@@ -586,6 +587,7 @@ export async function runDrawdownBacktest(params: {
   buy_amount: number
   add_amount: number
   sell_mode: DrawSellMode
+  reinvest: boolean
 }): Promise<ApiResponse<DrawBacktestResult>> {
   const res = await http.get<ApiResponse<DrawBacktestResult>>('/drawboard/backtest', {
     params,
