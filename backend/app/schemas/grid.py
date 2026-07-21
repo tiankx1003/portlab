@@ -55,6 +55,12 @@ class GridChartData(BaseModel):
     symbol_name: str = ""
 
 
+class GridBacktestResult(GridChartData):
+    """实时预览（POST /grid/preview）：图表数据 + 汇总。"""
+
+    summary: GridSummaryData
+
+
 class GridRequest(BaseModel):
     symbol: str = Field(..., min_length=1, max_length=32)
     start_date: date

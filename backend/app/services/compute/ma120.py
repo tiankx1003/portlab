@@ -31,6 +31,8 @@ from sqlalchemy.orm import Session
 from ...models.calc import CalcMa120Backtest
 from ...models.result import ResultMa120Summary
 from .common import annualized_return, compute_ma, load_prices, max_drawdown
+from ..benchmark import compute_benchmark_returns
+from ..symbol_catalog import lookup_name
 
 _Q8 = Decimal("0.00000001")  # 份额 8 位
 _Q4 = Decimal("0.0001")  # 百分比 / 偏离度 4 位
@@ -86,8 +88,8 @@ def lookback_days(ma_period: int) -> int:
     return ma_period * 2
 
 
-def run_backtest(db: Session, p: Ma120Params) -> str:
-    """执行回测，逐日结果写入 calc_ma120_backtest，汇总写入 result_ma120_summary。返回 task_id。"""
+def _compute(db: Session, p: Ma120Params):
+    """校验 + 加载行情 + 逐日计算 + 汇总（不落库）。返回 (task_id, calc_rows, summary, all_days)。"""
     if p.dividend_mode == "reinvest":
         raise ComputeError("分红复投（reinvest）暂未实现，一期仅支持 cash")
     if p.capital_mode not in ("fixed", "recurring", "hybrid"):
@@ -113,9 +115,64 @@ def run_backtest(db: Session, p: Ma120Params) -> str:
 
     dates = [r.trade_date for r in calc_rows]
     summary = _build_summary(task_id, p, dates, market_values, cashflows, counts)
+    return task_id, calc_rows, summary, all_days
 
+
+def run_backtest(db: Session, p: Ma120Params) -> str:
+    """执行回测并落库（calc + result 两表，幂等先删后写）。返回 task_id。"""
+    task_id, calc_rows, summary, _ = _compute(db, p)
     _write_results(db, task_id, calc_rows, summary)
     return task_id
+
+
+def run_realtime(db: Session, p: Ma120Params) -> dict:
+    """实时回测（不落库）：返回 chart 数据 + summary，供「开始回测」预览。"""
+    task_id, calc_rows, summary, all_days = _compute(db, p)
+    trade_dates = [r.trade_date for r in calc_rows]
+    closes = {d: float(c) for d, c in all_days}
+
+    buy_points: list[dict] = []
+    sell_points: list[dict] = []
+    for r in calc_rows:
+        if r.signal in ("buy", "sell"):
+            (buy_points if r.signal == "buy" else sell_points).append(
+                {"date": r.trade_date, "price": closes.get(r.trade_date, 0.0), "amount": float(r.action_amount)}
+            )
+
+    benchmark_returns, benchmark_name = compute_benchmark_returns(
+        db, trade_dates, p.start_date, p.end_date, source=p.source
+    )
+    name = lookup_name(p.symbol)
+    return {
+        "dates": trade_dates,
+        "market_value": [float(r.market_value) for r in calc_rows],
+        "total_cost": [float(r.cum_invested) for r in calc_rows],
+        "pnl": [float(r.pnl) for r in calc_rows],
+        "return_rate": [float(r.return_rate) for r in calc_rows],
+        "ma_values": [float(r.ma_value) if r.ma_value is not None else None for r in calc_rows],
+        "close_prices": [closes.get(d) for d in trade_dates],
+        "holding_shares": [float(r.holding_shares) for r in calc_rows],
+        "price_vs_ma": [float(r.price_vs_ma) if r.price_vs_ma is not None else None for r in calc_rows],
+        "signals": [r.signal for r in calc_rows],
+        "buy_points": buy_points,
+        "sell_points": sell_points,
+        "benchmark_returns": benchmark_returns,
+        "benchmark_name": benchmark_name,
+        "symbol_name": name,
+        "summary": {
+            "total_invested": float(summary.total_invested),
+            "final_value": float(summary.final_value),
+            "total_pnl": float(summary.total_pnl),
+            "total_return_rate": float(summary.total_return_rate),
+            "annualized_return": float(summary.annualized_return),
+            "max_drawdown": float(summary.max_drawdown),
+            "buy_count": summary.buy_count,
+            "sell_count": summary.sell_count,
+            "dividend_total": float(summary.dividend_total),
+            "win_rate": float(summary.win_rate),
+            "symbol_name": name,
+        },
+    }
 
 
 # --------------------------- 内部实现 ---------------------------

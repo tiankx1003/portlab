@@ -15,6 +15,7 @@ from ..database import get_db
 from ..models.grid import ResultGridSummary
 from ..schemas.common import ApiResponse
 from ..schemas.grid import (
+    GridBacktestResult,
     GridChartData,
     GridCreated,
     GridPoint,
@@ -29,10 +30,12 @@ from ..services.compute.grid import (
     load_chart_rows,
     make_task_id,
     run_backtest,
+    run_realtime,
 )
 from ..services.fetcher.registry import resolve_source, source_from_task_id
 from ..services.price_data import ensure_price_data
 from ..services.symbol_catalog import lookup_name
+from ..services.recent import log_save
 
 router = APIRouter()
 
@@ -56,7 +59,8 @@ def create_grid(req: GridRequest, db: Session = Depends(get_db)) -> ApiResponse:
     task_id = make_task_id(params)
 
     if db.get(ResultGridSummary, task_id) is not None:
-        return ApiResponse.ok(data=GridCreated(task_id=task_id))
+        log_save(db, task_id, "grid", req.symbol)
+    return ApiResponse.ok(data=GridCreated(task_id=task_id))
 
     err = ensure_price_data(db, req.symbol, req.start_date, req.end_date)
     if err:
@@ -68,7 +72,35 @@ def create_grid(req: GridRequest, db: Session = Depends(get_db)) -> ApiResponse:
     except ComputeError as e:
         return ApiResponse.error(message=str(e))
 
+    log_save(db, task_id, "grid", req.symbol)
     return ApiResponse.ok(data=GridCreated(task_id=task_id))
+
+
+@router.post("/grid/preview", response_model=ApiResponse)
+def preview_grid(req: GridRequest, db: Session = Depends(get_db)) -> ApiResponse:
+    """实时预览回测（不落库）：返回 chart + summary，供「开始回测」按钮快速响应。"""
+    src = resolve_source(db)
+    params = GridParams(
+        symbol=req.symbol,
+        start_date=req.start_date,
+        end_date=req.end_date,
+        center_price=Decimal(str(req.center_price)),
+        step_pct=Decimal(str(req.step_pct)),
+        amount_per_level=Decimal(str(req.amount_per_level)),
+        n_levels_above=req.n_levels_above,
+        n_levels_below=req.n_levels_below,
+        bound_mode=req.bound_mode,
+        source=src,
+    )
+    err = ensure_price_data(db, req.symbol, req.start_date, req.end_date)
+    if err:
+        return ApiResponse.error(message=err)
+    ensure_price_data(db, BENCHMARK_SYMBOL, req.start_date, req.end_date)  # best-effort
+    try:
+        raw = run_realtime(db, params)
+    except ComputeError as e:
+        return ApiResponse.error(message=str(e))
+    return ApiResponse.ok(data=GridBacktestResult(**raw))
 
 
 @router.get("/grid/{task_id}/chart", response_model=ApiResponse)

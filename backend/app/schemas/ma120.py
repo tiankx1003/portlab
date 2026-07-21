@@ -91,3 +91,9 @@ class Ma120SummaryData(BaseModel):
     dividend_total: float
     win_rate: float
     symbol_name: str = ""
+
+
+class Ma120BacktestResult(Ma120ChartData):
+    """实时 GET 预览（POST /ma120/preview）：图表数据 + 汇总。"""
+
+    summary: Ma120SummaryData

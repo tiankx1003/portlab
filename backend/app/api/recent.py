@@ -1,14 +1,12 @@
 """最近回测记录接口（首页用）。
 
-合并 DCA（result_dca_summary）、MA120（result_ma120_summary）、drawboard（result_drawboard_summary）
-三表，按 end_date 倒序取最近 N 条。
+读 ``recent_saves`` 日志表（仅「手动保存」POST /{strategy} 写入），按 ``saved_at`` 倒序取最近 N 条；
+return_rate / 起止日期再按 task_id 回查对应策略的 summary 表。
 
-> 三表均无 created_at 列，task_id 为 PK 且编码起止日期。一期以 ``end_date DESC`` 作为
-> 「记录时间近似值」排序基准（回测结束日越近越靠前），非真正创建时间；精确创建时间需后续给
-> 各表加 created_at 列（见 011 开放问题）。
+> 只展示手动保存，旧的「回测即落库」历史不在其中，避免被单一策略刷屏。
 """
 
-from datetime import date
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
@@ -17,6 +15,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models.drawboard import ResultDrawboardSummary
 from ..models.grid import ResultGridSummary
+from ..models.recent import RecentSave
 from ..models.result import ResultDcaSummary, ResultMa120Summary
 from ..schemas.common import ApiResponse
 from ..schemas.recent import RecentBacktestItem
@@ -24,77 +23,62 @@ from ..services.symbol_catalog import lookup_name
 
 router = APIRouter()
 
+# type → summary 表 ORM（回查 return_rate / 起止日期）
+_SUMMARY = {
+    "dca": ResultDcaSummary,
+    "ma120": ResultMa120Summary,
+    "drawboard": ResultDrawboardSummary,
+    "grid": ResultGridSummary,
+}
+
+
+def _relative(saved_at: datetime) -> str:
+    """保存时间的相对文案（刚刚 / X分钟前 / X小时前 / X天前）。"""
+    # MySQL DATETIME 不存时区，读回为 naive；写入时用的是 UTC，这里补回 tzinfo 再相减
+    if saved_at.tzinfo is None:
+        saved_at = saved_at.replace(tzinfo=UTC)
+    secs = int((datetime.now(UTC) - saved_at).total_seconds())
+    if secs < 60:
+        return "刚刚"
+    if secs < 3600:
+        return f"{secs // 60} 分钟前"
+    if secs < 86400:
+        return f"{secs // 3600} 小时前"
+    return f"{secs // 86400} 天前"
+
 
 @router.get("/recent", response_model=ApiResponse)
 def list_recent(limit: int = 5, db: Session = Depends(get_db)) -> ApiResponse:
-    """最近 limit 条回测记录（合并 DCA + MA120 + drawboard，按 end_date 倒序）。"""
+    """最近 limit 条「手动保存」的回测记录（按保存时间倒序）。"""
     limit = max(1, min(limit, 20))
-
-    # (type, task_id, symbol, return_rate, start_date, end_date)
-    merged: list[tuple[str, str, str, float, date, date]] = []
-
-    for r in db.execute(
-        select(
-            ResultDcaSummary.task_id,
-            ResultDcaSummary.symbol,
-            ResultDcaSummary.total_return_rate,
-            ResultDcaSummary.start_date,
-            ResultDcaSummary.end_date,
+    rows = (
+        db.execute(
+            select(RecentSave)
+            .order_by(RecentSave.saved_at.desc(), RecentSave.task_id)
+            .limit(limit)
         )
-    ).all():
-        merged.append(("dca", r.task_id, r.symbol, float(r.total_return_rate),
-                       r.start_date, r.end_date))
+        .scalars()
+        .all()
+    )
 
-    for r in db.execute(
-        select(
-            ResultMa120Summary.task_id,
-            ResultMa120Summary.symbol,
-            ResultMa120Summary.total_return_rate,
-            ResultMa120Summary.start_date,
-            ResultMa120Summary.end_date,
+    data: list[RecentBacktestItem] = []
+    for r in rows:
+        rate, start, end = 0.0, None, None
+        model = _SUMMARY.get(r.type)
+        if model is not None:
+            s = db.get(model, r.task_id)
+            if s is not None:
+                rate = float(s.total_return_rate)
+                start, end = s.start_date, s.end_date
+        data.append(
+            RecentBacktestItem(
+                task_id=r.task_id,
+                type=r.type,
+                symbol=r.symbol,
+                symbol_name=lookup_name(r.symbol),
+                return_rate=rate,
+                period_text=f"{start} ~ {end}" if start and end else "—",
+                created_text=_relative(r.saved_at),
+            )
         )
-    ).all():
-        merged.append(("ma120", r.task_id, r.symbol, float(r.total_return_rate),
-                       r.start_date, r.end_date))
-
-    for r in db.execute(
-        select(
-            ResultDrawboardSummary.task_id,
-            ResultDrawboardSummary.symbol,
-            ResultDrawboardSummary.total_return_rate,
-            ResultDrawboardSummary.start_date,
-            ResultDrawboardSummary.end_date,
-        )
-    ).all():
-        merged.append(("drawboard", r.task_id, r.symbol, float(r.total_return_rate),
-                       r.start_date, r.end_date))
-
-    for r in db.execute(
-        select(
-            ResultGridSummary.task_id,
-            ResultGridSummary.symbol,
-            ResultGridSummary.total_return_rate,
-            ResultGridSummary.start_date,
-            ResultGridSummary.end_date,
-        )
-    ).all():
-        merged.append(("grid", r.task_id, r.symbol, float(r.total_return_rate),
-                       r.start_date, r.end_date))
-
-    # end_date 倒序（同日再按 task_id 稳定排序）
-    merged.sort(key=lambda x: (x[5], x[1]), reverse=True)
-    merged = merged[:limit]
-
-    data = [
-        RecentBacktestItem(
-            task_id=task_id,
-            type=btype,
-            symbol=symbol,
-            symbol_name=lookup_name(symbol),
-            return_rate=rate,
-            period_text=f"{start} ~ {end}",
-            created_text=str(end),
-        )
-        for btype, task_id, symbol, rate, start, end in merged
-    ]
     return ApiResponse.ok(data=data)

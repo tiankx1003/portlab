@@ -39,6 +39,7 @@ from ..services.drawboard import (
 from ..services.fetcher.registry import resolve_source, source_from_task_id
 from ..services.price_data import ensure_price_data
 from ..services.symbol_catalog import lookup_name
+from ..services.recent import log_save
 
 router = APIRouter()
 
@@ -93,7 +94,8 @@ def save(req: DrawboardRequest, db: Session = Depends(get_db)) -> ApiResponse:
 
     # 幂等命中：同参数已算过则直接返回 task_id
     if db.get(ResultDrawboardSummary, task_id) is not None:
-        return ApiResponse.ok(data=DrawboardSaved(task_id=task_id))
+        log_save(db, task_id, "drawboard", req.symbol)
+    return ApiResponse.ok(data=DrawboardSaved(task_id=task_id))
 
     err = ensure_price_data(db, req.symbol, req.start_date, req.end_date)
     if err:
@@ -106,6 +108,7 @@ def save(req: DrawboardRequest, db: Session = Depends(get_db)) -> ApiResponse:
     except ComputeError as e:
         return ApiResponse.error(message=str(e))
 
+    log_save(db, task_id, "drawboard", req.symbol)
     return ApiResponse.ok(data=DrawboardSaved(task_id=task_id))
 
 

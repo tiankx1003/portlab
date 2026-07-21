@@ -16,6 +16,7 @@ from ..schemas.ma120 import (
     Ma120Point,
     Ma120Request,
     Ma120SummaryData,
+    Ma120BacktestResult,
 )
 from ..services.benchmark import BENCHMARK_SYMBOL, compute_benchmark_returns
 from ..services.compute.ma120 import (
@@ -24,10 +25,12 @@ from ..services.compute.ma120 import (
     lookback_days,
     make_task_id,
     run_backtest,
+    run_realtime,
 )
 from ..services.fetcher.registry import SOURCE_TABLE, resolve_source, source_from_task_id
 from ..services.price_data import ensure_price_data
 from ..services.symbol_catalog import lookup_name
+from ..services.recent import log_save
 
 router = APIRouter()
 
@@ -66,7 +69,8 @@ def create_ma120_backtest(req: Ma120Request, db: Session = Depends(get_db)) -> A
 
     # 幂等命中：同参数已算过则直接返回 task_id
     if db.get(ResultMa120Summary, task_id) is not None:
-        return ApiResponse.ok(data=Ma120Created(task_id=task_id))
+        log_save(db, task_id, "ma120", req.symbol)
+    return ApiResponse.ok(data=Ma120Created(task_id=task_id))
 
     fetch_start = req.start_date - timedelta(days=lookback_days(req.ma_period))
     err = ensure_price_data(db, req.symbol, fetch_start, req.end_date)
@@ -81,7 +85,44 @@ def create_ma120_backtest(req: Ma120Request, db: Session = Depends(get_db)) -> A
     except ComputeError as e:
         return ApiResponse.error(message=str(e))
 
+    log_save(db, task_id, "ma120", req.symbol)
     return ApiResponse.ok(data=Ma120Created(task_id=task_id))
+
+
+@router.post("/ma120/preview", response_model=ApiResponse)
+def preview_ma120_backtest(req: Ma120Request, db: Session = Depends(get_db)) -> ApiResponse:
+    """实时预览回测（不落库）：返回 chart + summary，供「开始回测」按钮快速响应。"""
+    principal = req.principal if req.capital_mode in ("fixed", "hybrid") else None
+    monthly_amount = req.monthly_amount if req.capital_mode in ("recurring", "hybrid") else None
+    src = resolve_source(db)
+    params = Ma120Params(
+        symbol=req.symbol,
+        start_date=req.start_date,
+        end_date=req.end_date,
+        capital_mode=req.capital_mode,
+        principal=principal,
+        monthly_amount=monthly_amount,
+        splits=req.splits,
+        ma_period=req.ma_period,
+        buy_threshold=req.buy_threshold,
+        step=req.step,
+        crash_threshold=req.crash_threshold,
+        crash_multiplier=req.crash_multiplier,
+        sell_mode=req.sell_mode,
+        batch_sell_step=req.batch_sell_step,
+        dividend_mode=req.dividend_mode,
+        source=src,
+    )
+    fetch_start = req.start_date - timedelta(days=lookback_days(req.ma_period))
+    err = ensure_price_data(db, req.symbol, fetch_start, req.end_date)
+    if err:
+        return ApiResponse.error(message=err)
+    ensure_price_data(db, BENCHMARK_SYMBOL, req.start_date, req.end_date)  # best-effort
+    try:
+        raw = run_realtime(db, params)
+    except ComputeError as e:
+        return ApiResponse.error(message=str(e))
+    return ApiResponse.ok(data=Ma120BacktestResult(**raw))
 
 
 @router.get("/ma120/{task_id}/chart", response_model=ApiResponse)

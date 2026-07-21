@@ -66,6 +66,12 @@ class SummaryData(BaseModel):
     symbol_name: str = ""
 
 
+class BacktestResult(ChartData):
+    """实时预览（POST /dca/preview）：图表数据 + 汇总。"""
+
+    summary: SummaryData
+
+
 class SymbolItem(BaseModel):
     code: str
     name: str

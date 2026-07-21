@@ -19,6 +19,8 @@ from sqlalchemy.orm import Session
 from ...models.calc import CalcDcaBacktest
 from ...models.result import ResultDcaSummary
 from .common import annualized_return, compute_ma, load_prices, max_drawdown
+from ..benchmark import compute_benchmark_returns
+from ..symbol_catalog import lookup_name
 
 _Q8 = Decimal("0.00000001")  # 份额 8 位
 _Q4 = Decimal("0.0001")  # 百分比/扣款率 4 位
@@ -60,8 +62,8 @@ def lookback_days(mode: str, ma_period: int) -> int:
     return ma_period * 2 if mode == "smart" else 0
 
 
-def run_backtest(db: Session, p: DcaParams) -> str:
-    """执行回测，逐日结果写入 calc_dca_backtest，汇总写入 result_dca_summary。返回 task_id。"""
+def _compute(db: Session, p: DcaParams):
+    """校验 + 加载行情 + 逐日计算 + 汇总（不落库）。返回 (task_id, calc_rows, summary, all_days)。"""
     task_id = make_task_id(p)
     load_start = p.start_date - timedelta(days=lookback_days(p.mode, p.ma_period))
 
@@ -77,12 +79,55 @@ def run_backtest(db: Session, p: DcaParams) -> str:
     calc_rows, market_values, cashflows, invest_count = _daily_calc(
         task_id, p, all_days, ma_series, invest_dates
     )
-
     dates = [r.trade_date for r in calc_rows]
     summary = _build_summary(task_id, p, dates, market_values, cashflows, invest_count)
+    return task_id, calc_rows, summary, all_days
 
+
+def run_backtest(db: Session, p: DcaParams) -> str:
+    """执行回测并落库（calc + result 两表，幂等先删后写）。返回 task_id。"""
+    task_id, calc_rows, summary, _ = _compute(db, p)
     _write_results(db, task_id, calc_rows, summary)
     return task_id
+
+
+def run_realtime(db: Session, p: DcaParams) -> dict:
+    """实时回测（不落库）：返回 chart 数据 + summary，供「开始回测」预览。"""
+    task_id, calc_rows, summary, all_days = _compute(db, p)
+    trade_dates = [r.trade_date for r in calc_rows]
+    benchmark_returns, benchmark_name = compute_benchmark_returns(
+        db, trade_dates, p.start_date, p.end_date, source=p.source
+    )
+    name = lookup_name(p.symbol)
+    return {
+        "dates": trade_dates,
+        "market_value": [float(r.market_value) for r in calc_rows],
+        "total_cost": [float(r.cum_cost) for r in calc_rows],
+        "pnl": [float(r.pnl) for r in calc_rows],
+        "return_rate": [float(r.return_rate) for r in calc_rows],
+        "invest_days": [bool(r.is_invest_day) for r in calc_rows],
+        "deduction_rates": [
+            float(r.deduction_rate) if (r.is_invest_day and r.deduction_rate is not None) else None
+            for r in calc_rows
+        ],
+        "actual_amounts": [
+            float(r.actual_amount) if (r.is_invest_day and r.actual_amount is not None) else None
+            for r in calc_rows
+        ],
+        "benchmark_returns": benchmark_returns,
+        "benchmark_name": benchmark_name,
+        "symbol_name": name,
+        "summary": {
+            "total_invested": float(summary.total_invested),
+            "final_value": float(summary.final_value),
+            "total_pnl": float(summary.total_pnl),
+            "total_return_rate": float(summary.total_return_rate),
+            "annualized_return": float(summary.annualized_return),
+            "max_drawdown": float(summary.max_drawdown),
+            "invest_count": summary.invest_count,
+            "symbol_name": name,
+        },
+    }
 
 
 # --------------------------- 智能定投策略 ---------------------------

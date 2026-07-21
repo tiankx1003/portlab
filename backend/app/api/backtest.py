@@ -12,6 +12,7 @@ from ..models.result import ResultDcaSummary
 from ..schemas.backtest import (
     BacktestCreated,
     BacktestRequest,
+    BacktestResult,
     ChartData,
     SummaryData,
 )
@@ -23,10 +24,12 @@ from ..services.compute.dca import (
     lookback_days,
     make_task_id,
     run_backtest,
+    run_realtime,
 )
 from ..services.fetcher.registry import resolve_source, source_from_task_id
 from ..services.price_data import ensure_price_data
 from ..services.symbol_catalog import lookup_name
+from ..services.recent import log_save
 
 router = APIRouter()
 
@@ -54,7 +57,8 @@ def create_dca_backtest(req: BacktestRequest, db: Session = Depends(get_db)) -> 
 
     # 命中已算过的同参数回测：直接返回 task_id，跳过重复计算与重复拉取
     if db.get(ResultDcaSummary, task_id) is not None:
-        return ApiResponse.ok(data=BacktestCreated(task_id=task_id))
+        log_save(db, task_id, "dca", req.symbol)
+    return ApiResponse.ok(data=BacktestCreated(task_id=task_id))
 
     fetch_start = req.start_date - timedelta(days=lookback_days(req.mode, req.ma_period))
     err = ensure_price_data(db, req.symbol, fetch_start, req.end_date)
@@ -69,7 +73,35 @@ def create_dca_backtest(req: BacktestRequest, db: Session = Depends(get_db)) -> 
     except ComputeError as e:
         return ApiResponse.error(message=str(e))
 
+    log_save(db, task_id, "dca", req.symbol)
     return ApiResponse.ok(data=BacktestCreated(task_id=task_id))
+
+
+@router.post("/dca/preview", response_model=ApiResponse)
+def preview_dca_backtest(req: BacktestRequest, db: Session = Depends(get_db)) -> ApiResponse:
+    """实时预览回测（不落库）：返回 chart + summary，供「开始回测」按钮快速响应。"""
+    src = resolve_source(db)
+    params = DcaParams(
+        symbol=req.symbol,
+        frequency=req.frequency,
+        amount=req.amount,
+        start_date=req.start_date,
+        end_date=req.end_date,
+        invest_day=req.invest_day,
+        mode=req.mode,
+        ma_period=req.ma_period,
+        source=src,
+    )
+    fetch_start = req.start_date - timedelta(days=lookback_days(req.mode, req.ma_period))
+    err = ensure_price_data(db, req.symbol, fetch_start, req.end_date)
+    if err:
+        return ApiResponse.error(message=err)
+    ensure_price_data(db, BENCHMARK_SYMBOL, req.start_date, req.end_date)  # best-effort
+    try:
+        raw = run_realtime(db, params)
+    except ComputeError as e:
+        return ApiResponse.error(message=str(e))
+    return ApiResponse.ok(data=BacktestResult(**raw))
 
 
 @router.get("/dca/{task_id}/chart", response_model=ApiResponse)

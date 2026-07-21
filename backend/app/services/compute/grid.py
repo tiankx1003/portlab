@@ -24,6 +24,8 @@ from sqlalchemy.orm import Session
 
 from ...models.grid import CalcGridBacktest, ResultGridSummary
 from .common import annualized_return, load_prices, max_drawdown
+from ..benchmark import compute_benchmark_returns
+from ..symbol_catalog import lookup_name
 
 _Q2 = Decimal("0.01")  # 金额 2 位
 _Q4 = Decimal("0.0001")  # 百分比 4 位
@@ -257,8 +259,8 @@ def make_task_id(p: GridParams) -> str:
     return f"{base}_{p.source}" if p.source != "akshare" else base
 
 
-def run_backtest(db: Session, p: GridParams) -> str:
-    """执行回测，逐日写入 calc_grid_backtest，汇总写入 result_grid_summary。返回 task_id。"""
+def _compute(db: Session, p: GridParams):
+    """校验 + 加载行情 + 仿真 + 汇总（不落库）。返回 (task_id, sim, summary)。"""
     if p.bound_mode not in BOUND_MODES:
         raise ComputeError(f"不支持的突破处理: {p.bound_mode}（可选 hold/stop/reset）")
     if p.center_price <= 0 or p.step_pct <= 0 or p.amount_per_level <= 0:
@@ -278,7 +280,13 @@ def run_backtest(db: Session, p: GridParams) -> str:
         p.n_levels_above, p.n_levels_below, p.bound_mode,
     )
     dates = [r.trade_date for r in sim.rows]
+    summary = _build_summary_orm(task_id, p, sim, dates)
+    return task_id, sim, summary
 
+
+def run_backtest(db: Session, p: GridParams) -> str:
+    """执行回测并落库（calc + result 两表，幂等先删后写）。返回 task_id。"""
+    task_id, sim, summary = _compute(db, p)
     calc_rows = [
         CalcGridBacktest(
             task_id=task_id,
@@ -297,9 +305,65 @@ def run_backtest(db: Session, p: GridParams) -> str:
         )
         for r in sim.rows
     ]
-    summary = _build_summary_orm(task_id, p, sim, dates)
     _write_results(db, task_id, calc_rows, summary)
     return task_id
+
+
+def run_realtime(db: Session, p: GridParams) -> dict:
+    """实时回测（不落库）：返回 chart 数据 + summary，供「开始回测」预览。"""
+    task_id, sim, summary = _compute(db, p)
+    trade_dates = [r.trade_date for r in sim.rows]
+    benchmark_returns, benchmark_name = compute_benchmark_returns(
+        db, trade_dates, p.start_date, p.end_date, source=p.source
+    )
+    name = lookup_name(p.symbol)
+    grid_levels = [
+        float(x) for x in build_grid_levels(
+            p.center_price, p.step_pct, p.n_levels_above, p.n_levels_below
+        )
+    ]
+    buy_points: list[dict] = []
+    sell_points: list[dict] = []
+    for r in sim.rows:
+        if r.signal == "buy":
+            buy_points.append({"date": r.trade_date, "price": float(r.close), "amount": float(r.action_amount)})
+        elif r.signal == "sell":
+            sell_points.append({"date": r.trade_date, "price": float(r.close), "amount": float(r.action_amount)})
+    return {
+        "dates": trade_dates,
+        "close_prices": [float(r.close) for r in sim.rows],
+        "market_values": [float(r.market_value) for r in sim.rows],
+        "total_cost": [float(r.cum_invested) for r in sim.rows],
+        "pnl": [float(r.pnl) for r in sim.rows],
+        "return_rates": [float(r.return_rate) for r in sim.rows],
+        "holding": [float(r.holding) for r in sim.rows],
+        "signals": [r.signal for r in sim.rows],
+        "grid_levels": grid_levels,
+        "buy_points": buy_points,
+        "sell_points": sell_points,
+        "grid_index": [r.grid_index for r in sim.rows],
+        "benchmark_returns": benchmark_returns,
+        "benchmark_name": benchmark_name,
+        "symbol_name": name,
+        "summary": {
+            "total_invested": float(summary.total_invested),
+            "final_value": float(summary.final_value),
+            "total_pnl": float(summary.total_pnl),
+            "total_return_rate": float(summary.total_return_rate),
+            "annualized_return": float(summary.annualized_return),
+            "max_drawdown": float(summary.max_drawdown),
+            "buy_count": summary.buy_count,
+            "sell_count": summary.sell_count,
+            "grid_profit": float(summary.grid_profit),
+            "cycle_count": summary.cycle_count,
+            "center_price": float(summary.center_price),
+            "step_pct": float(summary.step_pct),
+            "amount_per_level": float(summary.amount_per_level),
+            "n_levels_above": summary.n_levels_above,
+            "n_levels_below": summary.n_levels_below,
+            "bound_mode": summary.bound_mode,
+        },
+    }
 
 
 def _build_summary_orm(

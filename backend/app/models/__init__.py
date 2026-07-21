@@ -8,6 +8,7 @@ from .portfolio import CalcPortfolioNav, ResultPortfolioSummary
 from .llm_config import LlmConfig
 from .raw import RawPriceDaily
 from .raw_tushare import RawPriceDailyTushare
+from .recent import RecentSave
 from .release_note import ReleaseNote
 from .result import ResultDcaSummary, ResultMa120Summary
 from .theme import EventStock, Theme, ThemeStock
@@ -28,6 +29,7 @@ __all__ = [
     "ResultPortfolioSummary",
     "Feedback",
     "ReleaseNote",
+    "RecentSave",
     "Event",
     "Theme",
     "ThemeStock",
