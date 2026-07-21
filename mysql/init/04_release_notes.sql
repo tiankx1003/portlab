@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS release_notes (
 
 -- 预置最近迭代种子（幂等：title+released_at 唯一，重复执行不产生重复行）
 INSERT INTO release_notes (title, type, detail, released_at, created_at) VALUES
+('DCA/MA120/网格：两段式回测 + 保存按钮', 'improvement', '回测改实时预览（不落库）、新增「保存」按钮；首页「最近回测」改为仅手动保存、按保存时间排序（recent_saves 日志表）', '2026-07-22', UTC_TIMESTAMP()),
+('首页入口与默认值优化',       'improvement', '新增回撤看板 / 网格交易入口（四卡等宽、统一图标）；MA120/定投/回撤默认标的与参数调整', '2026-07-22', UTC_TIMESTAMP()),
 ('看板体验优化',               'improvement', '进入即用默认参数渲染图表；日期输入年满 4 位自动进月份（全看板统一组件，保留日历选择）；左上角品牌图标放大', '2026-07-20', UTC_TIMESTAMP()),
 ('估值温度计修复',             'bugfix',      '表盘中心 {value}% 占位符失效；历史 PE 图左轴名/「当前」标线标签裁剪出界', '2026-07-20', UTC_TIMESTAMP()),
 ('回撤看板：复利再投 + 收益率口径修复', 'feature', '新增复利再投（净资产高水位放大、现金约束防膨胀）；累计投入/收益率改资金循环口径，不再被循环资金压低', '2026-07-20', UTC_TIMESTAMP()),
