@@ -8,6 +8,7 @@ import {
   createBacktest,
   getChart,
   getSummary,
+  runDcaPreview,
   searchSymbols,
   type ChartData,
   type SummaryData,
@@ -21,16 +22,18 @@ const route = useRoute()
 const COLOR_UP = '#ee6666' // 盈利
 const COLOR_DOWN = '#3ba272' // 亏损 / 回撤
 
-const symbol = ref('000001')
+const symbol = ref('510300')
 const frequency = ref<'weekly' | 'monthly'>('monthly')
 const investDay = ref(10)
 const amount = ref(1000)
-const startDate = ref('2023-01-01')
+const startDate = ref('2022-01-01')
 const endDate = ref(new Date().toISOString().slice(0, 10))
 const mode = ref<'normal' | 'smart'>('smart')
 const maPeriod = ref(250)
 
 const loading = ref(false)
+const saving = ref(false)
+const savedMsg = ref('')
 const errorMsg = ref('')
 const chartData = ref<ChartData | null>(null)
 const summary = ref<SummaryData | null>(null)
@@ -113,50 +116,76 @@ function onFrequencyChange() {
   }
 }
 
+function validate(): string {
+  const code = normalizedSymbol.value
+  if (!code) return '请填写有效的标的代码'
+  if (!amount.value || amount.value < 100) return '每期金额需 ≥ 100'
+  if (startDate.value >= endDate.value) return '起始日期需早于结束日期'
+  return ''
+}
+
+function buildParams() {
+  return {
+    symbol: normalizedSymbol.value,
+    frequency: frequency.value,
+    amount: amount.value,
+    start_date: startDate.value,
+    end_date: endDate.value,
+    invest_day: investDay.value,
+    mode: mode.value,
+    ma_period: maPeriod.value,
+  }
+}
+
+// 实时预览（不落库）：「开始回测」按钮触发
 async function runBacktest() {
   errorMsg.value = ''
   chartData.value = null
   summary.value = null
-
-  const code = normalizedSymbol.value
-  if (!code) {
-    errorMsg.value = '请填写有效的标的代码'
+  const err = validate()
+  if (err) {
+    errorMsg.value = err
     return
   }
-  if (!amount.value || amount.value < 100) {
-    errorMsg.value = '每期金额需 ≥ 100'
-    return
-  }
-  if (startDate.value >= endDate.value) {
-    errorMsg.value = '起始日期需早于结束日期'
-    return
-  }
-
   loading.value = true
   try {
-    const r = await createBacktest({
-      symbol: code,
-      frequency: frequency.value,
-      amount: amount.value,
-      start_date: startDate.value,
-      end_date: endDate.value,
-      invest_day: investDay.value,
-      mode: mode.value,
-      ma_period: maPeriod.value,
-    })
+    const r = await runDcaPreview(buildParams())
     if (r.code !== 0) {
       errorMsg.value = r.message
       return
     }
-    const taskId = r.data.task_id
-    const [c, s] = await Promise.all([getChart(taskId), getSummary(taskId)])
-    if (c.code === 0) chartData.value = c.data
-    if (s.code === 0) summary.value = s.data
-    if (c.code !== 0) errorMsg.value = c.message
+    const { summary: s, ...chart } = r.data
+    chartData.value = chart
+    summary.value = s
   } catch (e) {
     errorMsg.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
+  }
+}
+
+// 保存落库（POST /dca，幂等）：「保存」按钮触发，返回 task_id 供首页/直达消费
+async function save() {
+  errorMsg.value = ''
+  savedMsg.value = ''
+  const err = validate()
+  if (err) {
+    errorMsg.value = err
+    return
+  }
+  saving.value = true
+  try {
+    const r = await createBacktest(buildParams())
+    if (r.code !== 0) {
+      errorMsg.value = r.message
+      return
+    }
+    savedMsg.value = `已保存（task_id：${r.data.task_id.slice(0, 24)}…），可从首页「最近记录」查看`
+    setTimeout(() => (savedMsg.value = ''), 6000)
+  } catch (e) {
+    errorMsg.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    saving.value = false
   }
 }
 
@@ -301,10 +330,14 @@ function pnlColor(n: number | undefined): string {
         <button :disabled="loading" class="primary" @click="runBacktest">
           {{ loading ? '回测中…' : '开始回测' }}
         </button>
+        <button :disabled="saving" class="primary" @click="save">
+          {{ saving ? '保存中…' : '保存' }}
+        </button>
       </div>
     </div>
 
     <p v-if="errorMsg" class="err">{{ errorMsg }}</p>
+    <p v-if="savedMsg" class="ok">{{ savedMsg }}</p>
 
     <!-- 指标卡片 -->
     <div v-if="summary" class="cards">
@@ -465,6 +498,13 @@ button.primary:disabled {
 .chart-card h3 {
   margin: 0 0 8px;
   font-size: 16px;
+}
+.ok {
+  color: #2f8a5f;
+  background: color-mix(in srgb, #3ba272 14%, transparent);
+  border: 1px solid color-mix(in srgb, #3ba272 30%, transparent);
+  border-radius: 6px;
+  padding: 8px 12px;
 }
 .err {
   color: var(--error-text);

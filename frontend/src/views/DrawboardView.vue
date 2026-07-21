@@ -30,7 +30,7 @@ const sellMode = ref<DrawSellMode>('new_high')
 const reinvest = ref(true)
 const buyAmount = ref(10000)
 const addAmount = ref(5000)
-const threshold = ref(10)
+const threshold = ref(12)
 const step = ref(2)
 
 const loading = ref(false)

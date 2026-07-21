@@ -66,8 +66,19 @@ export interface SummaryData {
   symbol_name: string
 }
 
+// 实时预览 = 图表数据 + 汇总（POST /dca/preview，不落库）
+export interface BacktestResult extends ChartData {
+  summary: SummaryData
+}
+
 export async function createBacktest(p: BacktestParams): Promise<ApiResponse<{ task_id: string }>> {
   const res = await http.post<ApiResponse<{ task_id: string }>>('/backtest/dca', p)
+  return res.data
+}
+
+/** 实时预览（不落库）：POST /backtest/dca/preview，返回 chart + summary。 */
+export async function runDcaPreview(p: BacktestParams): Promise<ApiResponse<BacktestResult>> {
+  const res = await http.post<ApiResponse<BacktestResult>>('/backtest/dca/preview', p)
   return res.data
 }
 
@@ -142,10 +153,23 @@ export interface Ma120SummaryData {
   symbol_name: string
 }
 
+// 实时预览 = 图表数据 + 汇总（POST /ma120/preview，不落库）
+export interface Ma120BacktestResult extends Ma120ChartData {
+  summary: Ma120SummaryData
+}
+
 export async function createMa120(
   p: Ma120Params,
 ): Promise<ApiResponse<{ task_id: string }>> {
   const res = await http.post<ApiResponse<{ task_id: string }>>('/backtest/ma120', p)
+  return res.data
+}
+
+/** 实时预览（不落库）：POST /backtest/ma120/preview，返回 chart + summary。 */
+export async function runMa120Preview(
+  p: Ma120Params,
+): Promise<ApiResponse<Ma120BacktestResult>> {
+  const res = await http.post<ApiResponse<Ma120BacktestResult>>('/backtest/ma120/preview', p)
   return res.data
 }
 
@@ -219,8 +243,19 @@ export interface GridSummaryData {
   bound_mode: string
 }
 
+// 实时预览 = 图表数据 + 汇总（POST /grid/preview，不落库）
+export interface GridBacktestResult extends GridChartData {
+  summary: GridSummaryData
+}
+
 export async function createGrid(p: GridParams): Promise<ApiResponse<{ task_id: string }>> {
   const res = await http.post<ApiResponse<{ task_id: string }>>('/backtest/grid', p)
+  return res.data
+}
+
+/** 实时预览（不落库）：POST /backtest/grid/preview，返回 chart + summary。 */
+export async function runGridPreview(p: GridParams): Promise<ApiResponse<GridBacktestResult>> {
+  const res = await http.post<ApiResponse<GridBacktestResult>>('/backtest/grid/preview', p)
   return res.data
 }
 

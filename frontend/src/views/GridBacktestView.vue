@@ -8,6 +8,7 @@ import {
   createGrid,
   getGridChart,
   getGridSummary,
+  runGridPreview,
   searchSymbols,
   type BoundMode,
   type GridChartData,
@@ -33,6 +34,8 @@ const nLevelsBelow = ref(5)
 const boundMode = ref<BoundMode>('hold')
 
 const loading = ref(false)
+const saving = ref(false)
+const savedMsg = ref('')
 const errorMsg = ref('')
 const chartData = ref<GridChartData | null>(null)
 const summary = ref<GridSummaryData | null>(null)
@@ -83,51 +86,77 @@ const symbolHint = computed(() => {
   return hit ? `.${m}  ${hit.name}` : `.${m}`
 })
 
+function validate(): string {
+  const code = normalizedSymbol.value
+  if (!code) return '请填写有效的标的代码'
+  if (!centerPrice.value || centerPrice.value <= 0) return '网格中枢价需 > 0（可参考区间首日收盘）'
+  if (startDate.value >= endDate.value) return '起始日期需早于结束日期'
+  return ''
+}
+
+function buildParams() {
+  return {
+    symbol: normalizedSymbol.value,
+    start_date: startDate.value,
+    end_date: endDate.value,
+    center_price: centerPrice.value,
+    step_pct: stepPct.value,
+    amount_per_level: amountPerLevel.value,
+    n_levels_above: nLevelsAbove.value,
+    n_levels_below: nLevelsBelow.value,
+    bound_mode: boundMode.value,
+  }
+}
+
+// 实时预览（不落库）：「开始回测」按钮触发
 async function runBacktest() {
   errorMsg.value = ''
   chartData.value = null
   summary.value = null
-
-  const code = normalizedSymbol.value
-  if (!code) {
-    errorMsg.value = '请填写有效的标的代码'
+  const err = validate()
+  if (err) {
+    errorMsg.value = err
     return
   }
-  if (!centerPrice.value || centerPrice.value <= 0) {
-    errorMsg.value = '网格中枢价需 > 0（可参考区间首日收盘）'
-    return
-  }
-  if (startDate.value >= endDate.value) {
-    errorMsg.value = '起始日期需早于结束日期'
-    return
-  }
-
   loading.value = true
   try {
-    const r = await createGrid({
-      symbol: code,
-      start_date: startDate.value,
-      end_date: endDate.value,
-      center_price: centerPrice.value,
-      step_pct: stepPct.value,
-      amount_per_level: amountPerLevel.value,
-      n_levels_above: nLevelsAbove.value,
-      n_levels_below: nLevelsBelow.value,
-      bound_mode: boundMode.value,
-    })
+    const r = await runGridPreview(buildParams())
     if (r.code !== 0) {
       errorMsg.value = r.message
       return
     }
-    const taskId = r.data.task_id
-    const [c, s] = await Promise.all([getGridChart(taskId), getGridSummary(taskId)])
-    if (c.code === 0) chartData.value = c.data
-    if (s.code === 0) summary.value = s.data
-    if (c.code !== 0) errorMsg.value = c.message
+    const { summary: s, ...chart } = r.data
+    chartData.value = chart
+    summary.value = s
   } catch (e) {
     errorMsg.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
+  }
+}
+
+// 保存落库（POST /grid，幂等）：「保存」按钮触发，返回 task_id 供首页/直达消费
+async function save() {
+  errorMsg.value = ''
+  savedMsg.value = ''
+  const err = validate()
+  if (err) {
+    errorMsg.value = err
+    return
+  }
+  saving.value = true
+  try {
+    const r = await createGrid(buildParams())
+    if (r.code !== 0) {
+      errorMsg.value = r.message
+      return
+    }
+    savedMsg.value = `已保存（task_id：${r.data.task_id.slice(0, 24)}…），可从首页「最近记录」查看`
+    setTimeout(() => (savedMsg.value = ''), 6000)
+  } catch (e) {
+    errorMsg.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    saving.value = false
   }
 }
 
@@ -248,10 +277,14 @@ function pnlColor(n: number | undefined): string {
         <button :disabled="loading" class="primary" @click="runBacktest">
           {{ loading ? '回测中…' : '开始回测' }}
         </button>
+        <button :disabled="saving" class="primary" @click="save">
+          {{ saving ? '保存中…' : '保存' }}
+        </button>
       </div>
     </div>
 
     <p v-if="errorMsg" class="err">{{ errorMsg }}</p>
+    <p v-if="savedMsg" class="ok">{{ savedMsg }}</p>
 
     <!-- 指标卡片 -->
     <div v-if="summary" class="cards">
@@ -412,6 +445,13 @@ button.primary:disabled {
 .chart-card h3 {
   margin: 0 0 8px;
   font-size: 16px;
+}
+.ok {
+  color: #2f8a5f;
+  background: color-mix(in srgb, #3ba272 14%, transparent);
+  border: 1px solid color-mix(in srgb, #3ba272 30%, transparent);
+  border-radius: 6px;
+  padding: 8px 12px;
 }
 .err {
   color: var(--error-text);
