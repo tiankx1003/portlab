@@ -58,8 +58,9 @@ def create_dca_backtest(req: BacktestRequest, db: Session = Depends(get_db)) -> 
     # 命中已算过的同参数回测：直接返回 task_id，跳过重复计算与重复拉取
     if db.get(ResultDcaSummary, task_id) is not None:
         log_save(db, task_id, "dca", req.symbol)
-    return ApiResponse.ok(data=BacktestCreated(task_id=task_id))
+        return ApiResponse.ok(data=BacktestCreated(task_id=task_id))
 
+    # 未命中：继续计算落库
     fetch_start = req.start_date - timedelta(days=lookback_days(req.mode, req.ma_period))
     err = ensure_price_data(db, req.symbol, fetch_start, req.end_date)
     if err:
