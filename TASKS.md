@@ -27,3 +27,4 @@
 | 021 | [股息率 / DCF 估值回测](docs/tasks/021-dividend-dcf-backtest.md) | 历史相同估值买入回测+胜率分布；依赖016股息率历史，PE分位降级 | ☐ |
 | 022 | [组合回测（含有效前沿/最优权重）](docs/tasks/022-portfolio-backtest.md) | 多标的组合收益/回撤/波动 + 马科维茨有效前沿求最优权重 | ☑ |
 | 023 | [策略擂台（横向对比）](docs/tasks/023-strategy-arena.md) | 同标的多策略/同策略多标的对比，归一化净值+指标表，消费四策略 summary | ☑ |
+| 024 | [估值看板 v2：PE 通道 + 多指数叠加 + 双源补强](docs/tasks/024-valuation-v2.md) | 7 指数（lg+csindex 双源）+ PE 5 通道 + 多指数叠加归一化 + 时间窗口；补强 016 简化 MVP，4 个无数据指数灰显 | ☑ |

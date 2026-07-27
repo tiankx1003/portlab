@@ -30,3 +30,23 @@
 - 接口：012–017 + recent/release-notes/roadmap/valuation 全部 200；017 / 016 实测返回真实数据。
 - 前端 `vue-tsc + build` 通过（含 `/drawboard`、`/etf-flow`、`/valuation` 三新页）。
 - 后端 ruff：新代码 clean（仅余全项目既有 B008 / validation handler 长行基线）。
+
+## 024 估值看板 v2 —— 已完成 ✅（一处口径需知悉）
+
+全部功能实现并实测通过（后端 pytest 29 passed、前端 vue-tsc+vite build 通过、puppeteer 明暗双主题截图验证）。无阻断项，仅一处设计口径供知悉：
+
+### 需知悉口径：多指数叠加归一化对象 = PE-TTM（非指数点位）
+任务对 overlay 同时出现「涨得多」与「估值修复快」两种语义。本期取 **PE-TTM 归一化**：`raw_index_valuation_daily` 未持久化指数点位（任务表结构无价格列），取价格需另引数据源；且本看板主题为「估值」，PE 归一化直接回答「哪段估值修复更快」。图表 LegendHint/tooltip 已明示归一化对象为 PE-TTM。如需改价格归一化，后续加 `close` 列即可（列开放问题）。
+
+### 实测结论（2026-07-22，akshare 1.18.64）
+| 指数 | 源 | PE 历史 | PB | 股息率 | 实测 |
+|------|----|---------|----|----|------|
+| 上证50/沪深300/中证500/中证800/中证1000 | lg | ✅ | ✅ | — | PE+PB 日序列完整（沪深300 当前 PE 13.78 / 分位 97%） |
+| 中证2000(932000) | csindex | ✅ | — | 快照 0.91% | 历史过滤 NaN 正常 |
+| 科创50(000688) | csindex | ✅ | — | 快照 0.22% | 历史过滤 NaN 正常 |
+| 上证指数/深证成指/创业板指/微盘/科创板指 | none | ❌ | ❌ | ❌ | 下拉灰显禁选 + tooltip |
+
+- 016 创业板指 `KeyError` 已修复：unsupported 指数返回 `available=false + note`。
+- `GET /api/valuation?symbol=` 旧端点保留，转发 `single(lookback=all)` 映射旧形态（向后兼容）。
+- 表：fresh 走 `mysql/init/12_valuation_v2.sql`，已部署走 `migrations/013_valuation_v2.sql`；`main.py` 另有启动自愈（建表 + registry seed）。
+- 更新日志：CLI 登记 id=23（2026-07-22），同步进 fresh-install seed。Roadmap：024 置 ☑，自动移出待办。

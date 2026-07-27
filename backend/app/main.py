@@ -89,6 +89,10 @@ def _seed_release_notes_if_empty(db) -> None:
         text(
             "INSERT INTO release_notes (title, type, detail, released_at, "
             "is_deleted, created_at) VALUES "
+            "('估值看板 v2：PE 通道 + 多指数叠加', 'feature', "
+            "'7 指数(lg+csindex 双源) + PE 5 通道(极高/偏高/中位/偏低/极低) + "
+            "多指数 PE 归一化叠加 + 时间窗口；4 个无数据指数灰显，修复 016 创业板指 KeyError', "
+            "'2026-07-22', 0, UTC_TIMESTAMP()), "
             "('网格交易策略回测', 'feature', "
             "'中枢+间距双向触发吃震荡；图表画网格 markLine，"
             "补齐趋势/恐慌/震荡三件套', "
@@ -261,6 +265,60 @@ def _ensure_portfolio_tables() -> None:
         logger.warning("启动自愈（组合回测表）失败: %s", e)
 
 
+def _ensure_valuation_tables() -> None:
+    """启动自愈：估值看板 v2（024）两表（raw_index_valuation_daily + index_registry）。
+
+    CREATE TABLE IF NOT EXISTS 建表（幂等）；index_registry 为空时预置 12 行种子
+    （7 supported=1、5 supported=0），覆盖未跑 init/12 或 migrations/013 的裸机场景。
+    """
+    try:
+        from .database import Base, SessionLocal, engine
+        from .models.valuation import IndexRegistry, RawIndexValuationDaily
+
+        Base.metadata.create_all(
+            engine,
+            tables=[
+                RawIndexValuationDaily.__table__,
+                IndexRegistry.__table__,
+            ],
+        )
+        with SessionLocal() as db:
+            _seed_index_registry(db)
+            db.commit()
+    except Exception as e:  # noqa: BLE001 - 自愈失败不阻断启动
+        logger.warning("启动自愈（估值看板 v2 表）失败: %s", e)
+
+
+def _seed_index_registry(db) -> None:
+    """index_registry 为空时预置 12 行（幂等）。与 init/12 同源。"""
+    from sqlalchemy import func, select
+
+    from .models.valuation import IndexRegistry
+
+    cnt = db.execute(select(func.count()).select_from(IndexRegistry)).scalar() or 0
+    if cnt > 0:
+        return
+    db.execute(
+        text(
+            "INSERT INTO index_registry "
+            "(index_code, name_cn, lg_name, source_type, supported, note, sort_order) VALUES "
+            "('000016','上证50','上证50','lg',1,NULL,1), "
+            "('000300','沪深300','沪深300','lg',1,NULL,2), "
+            "('000905','中证500','中证500','lg',1,NULL,3), "
+            "('000906','中证800','中证800','lg',1,NULL,4), "
+            "('000852','中证1000','中证1000','lg',1,NULL,5), "
+            "('932000','中证2000',NULL,'csindex',1,NULL,6), "
+            "('000688','科创50',NULL,'csindex',1,NULL,7), "
+            "('KCBZ','科创板指',NULL,'none',0,'与科创50(000688)成分相同，不重复列出，请选「科创50」',8), "
+            "('000001','上证指数',NULL,'none',0,'akshare 无该指数的指数级 PE/PB（lg 无该宽基，csindex 不覆盖上交所发布指数）',9), "
+            "('399001','深证成指',NULL,'none',0,'akshare 无该指数的指数级 PE/PB（csindex 不覆盖深交所发布指数）',10), "
+            "('399006','创业板指',NULL,'none',0,'akshare 无该指数的指数级 PE/PB（lg 仅有创业板50，csindex 不覆盖国证/深交所指数）',11), "
+            "('886037','微盘',NULL,'none',0,'akshare 双源皆无微盘股指数级 PE/PB 数据',12) "
+            "ON DUPLICATE KEY UPDATE name_cn = VALUES(name_cn)"
+        )
+    )
+
+
 def _seed_builtin_themes(db) -> None:
     """内置主题（id 1~3）+ 成分股样例空表时预置（幂等）。与 init/08 同源。"""
     from sqlalchemy import func, select
@@ -303,6 +361,7 @@ async def lifespan(app: FastAPI):
     _ensure_drawboard_tables()
     _ensure_grid_tables()
     _ensure_portfolio_tables()
+    _ensure_valuation_tables()
     # 启动时后台预热 A 股标的目录，使名称解析（图表标题）稳定可用
     threading.Thread(target=symbol_catalog.warmup, daemon=True).start()
     yield

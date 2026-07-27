@@ -693,8 +693,103 @@ export interface ValuationData {
   series?: [string, number][] // (date, pe)
 }
 
+/**
+ * @deprecated 016 旧端点（向后兼容）。新代码用 getSingleValuation / getOverlayValuation。
+ */
 export async function getValuation(symbol: string): Promise<ApiResponse<ValuationData>> {
   const res = await http.get<ApiResponse<ValuationData>>('/valuation', { params: { symbol } })
+  return res.data
+}
+
+// ---- valuation v2: 估值看板（024）----
+export type ValuationLookback = '1y' | '3y' | '5y' | '7y' | '10y' | 'all'
+
+export interface IndexItem {
+  index_code: string
+  name_cn: string
+  lg_name?: string | null
+  source_type: string // lg / csindex / none
+  supported: boolean
+  note?: string | null
+  sort_order?: number
+}
+
+export interface PeChannel {
+  l1_min: number
+  l2_low: number
+  l3_median: number
+  l4_high: number
+  l5_max: number
+}
+
+export interface SingleValuationParams {
+  symbol: string
+  lookback: ValuationLookback
+  start_date?: string
+  end_date?: string
+}
+
+export interface SingleValuationData {
+  available: boolean
+  index_code: string
+  name_cn: string
+  source_type: string
+  supported: boolean
+  note?: string | null
+  dates: string[]
+  pe_ttm: (number | null)[]
+  pb: (number | null)[]
+  channel: PeChannel | Record<string, never>
+  current_pe: number | null
+  percentile: number | null
+  channel_position: string
+  current_pb: number | null
+  dividend_yield: number | null
+  pb_available: boolean
+  dividend_available: boolean
+  as_of?: string | null
+  fetch_warning?: string | null
+}
+
+export interface OverlayParams {
+  symbols: string[]
+  lookback: ValuationLookback
+  base: 1 | 1000
+  start_date?: string
+  end_date?: string
+}
+
+export interface OverlaySeriesItem {
+  index_code: string
+  name_cn: string
+  normalized: (number | null)[]
+}
+
+export interface OverlayData {
+  base: number
+  dates: string[]
+  series: OverlaySeriesItem[]
+  note?: string | null
+}
+
+export async function getValuationIndices(): Promise<ApiResponse<{ items: IndexItem[] }>> {
+  const res = await http.get<ApiResponse<{ items: IndexItem[] }>>('/valuation/indices')
+  return res.data
+}
+
+export async function getSingleValuation(
+  params: SingleValuationParams,
+): Promise<ApiResponse<SingleValuationData>> {
+  const res = await http.get<ApiResponse<SingleValuationData>>('/valuation/single', { params })
+  return res.data
+}
+
+export async function getOverlayValuation(
+  params: OverlayParams,
+): Promise<ApiResponse<OverlayData>> {
+  const res = await http.get<ApiResponse<OverlayData>>('/valuation/overlay', {
+    params: { ...params, symbols: params.symbols.join(',') },
+  })
   return res.data
 }
 
