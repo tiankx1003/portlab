@@ -1,21 +1,24 @@
 # PortLab — 个人投资分析工具箱
 
-PortLab 是一个本地部署的个人投资分析平台：**定投回测、MA120 红利策略、回撤买入看板、ETF 资金流向、市场概览**，并支持 **AkShare / Tushare 双数据源**一键切换。前后端 + MySQL 全部 Docker Compose 一键启停。
+PortLab 是一个本地部署的个人投资分析平台：**定投回测、MA120 红利策略、回撤买入、网格交易、组合回测（有效前沿）、策略擂台、ETF 资金流向、估值看板、事件冲击产业链、市场概览**，并支持 **AkShare / Tushare 双数据源**一键切换。前后端 + MySQL 全部 Docker Compose 一键启停。
 
 ## 功能一览
 
 | 模块 | 说明 |
 |------|------|
-| **定投回测**（普通 / 智能均线） | 选标的、频率、金额、区间，逐日算市值/成本/盈亏/收益率；智能模式按均线偏离度动态扣款。XIRR 年化 + 最大回撤 + 双轴图表。 |
-| **MA120 红利策略** | 价格跌破 MA120 × 阈值金字塔分批买入，站回 MA 上方分批/全部/半仓兑现；支持固定本金 / 每月投入 / 混合三种资金模式。 |
-| **回撤买入策略看板** | 拖动「回撤阈值」实时定义买点：回撤达阈值首买、每再多跌 N% 加仓、新高清仓；左轴价格/回撤镜像 + 右轴市值/收益。 |
+| **定投回测**（普通 / 智能均线） | 选标的、频率、金额、区间，逐日算市值/成本/盈亏/收益率；智能模式按均线偏离度动态扣款。XIRR 年化 + 最大回撤 + 双轴图表。支持「预览」实时算 + 「保存」落库两段式。 |
+| **MA120 红利策略** | 价格跌破 MA120 × 阈值金字塔分批买入，站回 MA 上方分批/全部/半仓兑现；固定本金 / 每月投入 / 混合三种资金模式，复利再投开关。 |
+| **回撤买入策略看板** | 拖动「回撤阈值」实时定义买点：回撤达阈值首买、每再多跌 N% 加仓、新高/部分清仓；左轴价格/回撤镜像 + 右轴市值/收益。 |
+| **网格交易策略回测** | 中枢 + 间距双向触发吃震荡：价格每跌一档买入、每涨一档卖出，画网格 markLine；补齐趋势/恐慌/震荡三件套。 |
+| **组合回测（含有效前沿）** | 多标的组合收益/回撤/波动 + 马科维茨有效前沿求最优权重（最小方差 / 最大夏普），含相关性热力图。 |
+| **策略擂台（横向对比）** | 同标的多策略 / 同策略多标的对比，归一化净值叠加 + 指标表，消费四策略 summary。 |
+| **估值看板** | 7 指数（lg + csindex 双源）PE 历史分位 + **PE 估值通道**（5 条线分高估/中性/低估带）+ 多指数 PE 归一化叠加 + 时间窗口；4 个无数据指数灰显。 |
 | **ETF 资金流向** | 份额变动 + 北向资金两路信号（Tushare），观察机构 / 国家队动向。 |
+| **事件冲击产业链看板** | 事件 → 标的池 → 产业链关系图 + 波动对比 + 相关性热力图；LLM 智能匹配（OpenAI 兼容协议）。 |
 | **市场概览** | 预置指数（沪深300 / 红利ETF / 红利低波）最新价 + 涨跌幅 + 迷你 sparkline，第 4 格可手动输入代码，一键刷新。 |
 | **首页门户** | 功能入口卡片、最近回测记录（点击直达结果）、最近更新、Roadmap；品牌区可点击回首页。 |
 | **数据源切换** | 右上角钥匙图标：默认 AkShare 免费；开启 Tushare 后行情独立成表、互不污染。Token 持久化、重启不丢。 |
 | **更新日志 / 反馈 / GitHub** | 导航栏铃铛看最新迭代、反馈图标提建议、GitHub 外链。 |
-
-> 估值温度计（PE 历史分位）后端已就绪，因运行环境缺 `py_mini_racer` 原生库暂不可用，详见 `docs/tasks/ACCEPTANCE_PENDING.md`。
 
 ## 技术栈
 
@@ -102,13 +105,17 @@ npm run dev                 # http://localhost:5173 ，/api 默认代理到 http
 | 基础 | GET | `/api/health` | 健康检查 |
 | 行情 | POST | `/api/data/fetch` | 手动拉取标的行情（随数据源开关） |
 | 标的 | GET | `/api/symbols/search?q=` | 代码 / 名称搜索 |
-| 定投 | POST/GET | `/api/backtest/dca` `…/{task_id}/{chart,summary}` | 定投回测（普通 / 智能） |
-| MA120 | POST/GET | `/api/backtest/ma120` `…/{task_id}/{chart,summary}` | MA120 策略回测 |
-| 最近 | GET | `/api/backtest/recent?limit=` | 合并 DCA/MA120 最近记录 |
+| 定投 | POST/GET | `/api/backtest/dca` `…/preview` `…/{task_id}/{chart,summary}` | 定投回测（普通 / 智能） |
+| MA120 | POST/GET | `/api/backtest/ma120` `…/preview` `…/{task_id}/{chart,summary}` | MA120 策略回测 |
+| 网格 | POST/GET | `/api/backtest/grid` `…/preview` `…/{task_id}/{chart,summary}` | 网格交易策略回测 |
+| 组合 | POST/GET | `/api/backtest/portfolio` `…/{task_id}/{chart,summary}` | 组合回测（含有效前沿） |
+| 最近 | GET | `/api/backtest/recent?limit=` | 合并各策略最近记录 |
+| 策略擂台 | GET | `/api/arena/compare` | 多策略 / 多标的横向对比 |
 | 市场 | GET | `/api/market/overview?extra=` | 指数概览（随开关） |
-| 回撤看板 | GET | `/api/drawboard/{series,backtest}` | 回撤序列 + 金字塔策略 |
-| 估值 | GET | `/api/valuation?symbol=` | 指数 PE 分位（数据源阻塞时降级） |
+| 回撤看板 | GET/POST | `/api/drawboard/{series,backtest,save}/{task_id}/…` | 回撤序列 + 金字塔策略 + 落库 |
+| 估值 | GET | `/api/valuation/{indices,single,overlay}` | 估值看板 v2：指数列表 / 单指数通道 / 多指数叠加（旧 `/api/valuation?symbol=` 保留） |
 | ETF 流向 | GET | `/api/etf-flow?symbol=` | 份额变动 + 北向（Tushare） |
+| 事件看板 | GET/POST | `/api/event/{themes,smart-match,,{id},impact}` | 事件冲击产业链 + LLM 智能匹配 |
 | 数据源 | GET/PUT/DELETE | `/api/datasource/{status,token,toggle}` | Tushare 开关 + Token 管理 |
 | 更新日志 | GET | `/api/release-notes` | 最新 5 条 |
 | Roadmap | GET | `/api/roadmap` | 未实现任务（TASKS.md ☐） |
@@ -132,28 +139,29 @@ portlab/
 ├── docker-compose.yml
 ├── .env.example
 ├── TASKS.md                      # 任务索引（☑/☐，roadmap 数据源）
-├── docs/tasks/                   # 任务拆解文档 001–017 + 验收待确认
+├── docs/tasks/                   # 任务拆解文档 001–024 + 验收待确认
 ├── mysql/{init,migrations}/      # 建表 / 升级 SQL
 ├── backend/app/
 │   ├── main.py                   # FastAPI 入口（路由注册 + 启动自愈建表）
-│   ├── api/                      # 路由：data/backtest/ma120/drawboard/market/
-│   │                             #       valuation/etf_flow/datasource/release_note/
-│   │                             #       recent/roadmap/feedback/symbols/health
+│   ├── api/                      # 路由：data/backtest(dca/ma120/grid/portfolio)/drawboard/
+│   │                             #       arena/market/valuation/etf_flow/event/datasource/
+│   │                             #       release_note/recent/roadmap/feedback/symbols/health
 │   ├── cli/release_notes.py      # 更新日志管理 CLI
-│   ├── models/                   # raw / raw_tushare / data_source_config / release_note / ...
+│   ├── models/                   # raw / raw_tushare / valuation / portfolio / grid / event / ...
 │   ├── schemas/                  # 各领域响应模型（统一 ApiResponse）
 │   └── services/
-│       ├── fetcher/              # DataFetcher 抽象 + AkShare/Tushare + registry(源路由)
-│       ├── compute/              # dca / ma120 计算引擎 + common
-│       ├── drawboard / market / valuation / etf_flow / roadmap / benchmark / price_data / storage
+│       ├── fetcher/              # DataFetcher 抽象 + AkShare/Tushare + valuation_fetcher + registry
+│       ├── compute/              # dca / ma120 / grid / portfolio / event_impact 计算引擎 + common
+│       ├── drawboard / market / valuation_data / etf_flow / event / arena / roadmap / price_data / storage
 └── frontend/src/
-    ├── App.vue                   # 导航（品牌区 + 功能页 + 数据源/更新日志/GitHub/主题）
-    ├── views/                    # Home / Backtest / Ma120Backtest / DrawboardView / EtfFlowView
-    ├── components/               # MetricCard / DcaChart / Ma120Chart / DataSourceWidget / ReleaseNotesWidget ...
+    ├── App.vue                   # 导航（品牌区 + 10 功能页 + 数据源/更新日志/GitHub/主题）
+    ├── views/                    # Home / Backtest / Ma120Backtest / DrawboardView / GridBacktestView /
+    │                             # PortfolioBacktestView / ArenaView / EtfFlowView / ValuationView / EventDashboardView
+    ├── components/               # MetricCard / DcaChart / Ma120Chart / *Chart / DataSourceWidget / ReleaseNotesWidget ...
     ├── api/                      # axios 封装 + 全部接口客户端
     └── router/
 ```
 
 ## 任务进度
 
-任务索引见 `TASKS.md`，详情见 `docs/tasks/`。当前 001–015、017 已完成；016（估值温度计）待 PE 数据源修复。
+任务索引见 `TASKS.md`，详情见 `docs/tasks/`。当前 001–020、022–024 已完成；**021（股息率 / DCF 估值回测）待实现**（依赖估值看板补出股息率历史序列，本期 csindex 仅当日快照）。
