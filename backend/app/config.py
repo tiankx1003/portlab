@@ -24,5 +24,10 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_model: str = ""
 
+    # MCP server（026）：mcp_url 为容器内探测地址（compose 注入 http://mcp:8020/mcp）；
+    # mcp_url_public 为前端展示 / ZCode 配置用的宿主机地址（默认 localhost:8020）。
+    mcp_url: str = "http://mcp:8020/mcp"
+    mcp_url_public: str = "http://localhost:8020/mcp"
+
 
 settings = Settings()

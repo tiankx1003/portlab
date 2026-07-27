@@ -1,0 +1,37 @@
+[project]
+name = "portlab-mcp"
+version = "0.1.0"
+description = "PortLab MCP Server —— 把 PortLab API 暴露给 LLM（只读查询 + 回测创建，chart 降采样）"
+requires-python = ">=3.12"
+dependencies = [
+    "fastmcp>=2.0",
+    "httpx>=0.27",
+    "pydantic>=2.5",
+    "pydantic-settings>=2.5",
+    "pyyaml>=6.0",
+    "anyio>=4",
+    "starlette>=0.37",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+]
+
+# 不声明 [build-system]：uv 视为虚拟项目（与 backend 风格一致），
+# `uv sync` 只装 dependencies，不构建/安装项目自身。
+# 关键设计：不 import backend 任何模块（不依赖 fastapi/sqlalchemy/akshare/tushare/scipy）。
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

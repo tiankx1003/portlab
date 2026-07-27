@@ -446,6 +446,27 @@ export async function getDataSourceStatus(): Promise<ApiResponse<DataSourceStatu
   return res.data
 }
 
+// ---- mcp status（026 Part C，前端状态面板）----
+export interface McpToolItem {
+  name: string
+  group: string
+  desc: string
+}
+
+export interface McpStatusData {
+  enabled: boolean
+  mcp_url: string
+  backend_reachable: boolean
+  tool_count: number
+  tools: McpToolItem[]
+  last_check: string
+}
+
+export async function getMcpStatus(): Promise<ApiResponse<McpStatusData>> {
+  const res = await http.get<ApiResponse<McpStatusData>>('/mcp/status')
+  return res.data
+}
+
 export async function updateTushareToken(body: {
   token: string
 }): Promise<ApiResponse<DataSourceStatus>> {

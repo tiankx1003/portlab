@@ -25,6 +25,7 @@ from .api import (
     health,
     ma120,
     market,
+    mcp,
     portfolio,
     recent,
     release_note,
@@ -413,3 +414,4 @@ app.include_router(valuation.router, prefix="/api/valuation", tags=["valuation"]
 app.include_router(etf_flow.router, prefix="/api/etf-flow", tags=["etf-flow"])  # /api/etf-flow
 app.include_router(event_dashboard.router, prefix="/api/event", tags=["event"])  # /api/event
 app.include_router(arena.router, prefix="/api/arena", tags=["arena"])  # /api/arena/compare
+app.include_router(mcp.router, prefix="/api/mcp", tags=["mcp"])  # /api/mcp/status（前端状态面板）

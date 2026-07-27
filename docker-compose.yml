@@ -35,6 +35,8 @@ services:
       LLM_API_BASE: ${LLM_API_BASE:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-}
+      # MCP server（026）：容器间探测地址；前端展示用默认 localhost:8020
+      PORTLAB_MCP_URL: http://mcp:8020/mcp
     ports:
       - "8010:8010"
     depends_on:
@@ -45,6 +47,26 @@ services:
       - /app/.venv
       - ./:/repo:ro
     command: [".venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8010", "--reload"]
+
+  mcp:
+    build: ./mcp_server
+    container_name: portlab-mcp
+    restart: unless-stopped
+    environment:
+      # 容器间走服务名 backend；契约表挂载到 /app/api-registry.yaml（只读）
+      PORTLAB_API_BASE: http://backend:8010/api
+      MCP_HTTP_PORT: "8020"
+      MCP_HOST: "0.0.0.0"
+      MCP_REGISTRY_PATH: /app/api-registry.yaml
+    ports:
+      - "8020:8020"
+    depends_on:
+      - backend
+    volumes:
+      - ./docs/api-registry.yaml:/app/api-registry.yaml:ro
+      - ./mcp_server:/app
+      - /app/.venv
+    command: [".venv/bin/python", "-m", "portlab_mcp.server"]
 
   frontend:
     build: ./frontend

@@ -1,6 +1,6 @@
 # PortLab — 个人投资分析工具箱
 
-PortLab 是一个本地部署的个人投资分析平台：**定投回测、MA120 红利策略、回撤买入、网格交易、组合回测（有效前沿）、策略擂台、ETF 资金流向、估值看板、事件冲击产业链、市场概览**，并支持 **AkShare / Tushare 双数据源**一键切换。前后端 + MySQL 全部 Docker Compose 一键启停。
+PortLab 是一个本地部署的个人投资分析平台：**定投回测、MA120 红利策略、回撤买入、网格交易、组合回测（有效前沿）、策略擂台、ETF 资金流向、估值看板、事件冲击产业链、市场概览**，并支持 **AkShare / Tushare 双数据源**一键切换。前后端 + MySQL 全部 Docker Compose 一键启停。另内置 **MCP Server**（独立容器），把 32 个核心 API 暴露给 LLM（ZCode / Claude），在对话里直接查估值、跑回测、分析事件冲击。
 
 ## 功能一览
 
@@ -19,6 +19,7 @@ PortLab 是一个本地部署的个人投资分析平台：**定投回测、MA12
 | **首页门户** | 功能入口卡片、最近回测记录（点击直达结果）、最近更新、Roadmap；品牌区可点击回首页。 |
 | **数据源切换** | 右上角钥匙图标：默认 AkShare 免费；开启 Tushare 后行情独立成表、互不污染。Token 持久化、重启不丢。 |
 | **更新日志 / 反馈 / GitHub** | 导航栏铃铛看最新迭代、反馈图标提建议、GitHub 外链。 |
+| **MCP Server（LLM 接入）** | 独立容器（`mcp_server/`）把 32 个核心 API 暴露为 MCP tool（只读查询 + 回测创建，chart 自动降采样到 ~80 点）；导航栏 MCP 图标看连接状态 / 工具清单 / 一键复制 ZCode 配置。契约表 `docs/api-registry.yaml` 治理接口暴露与漂移。 |
 
 ## 技术栈
 
@@ -28,8 +29,9 @@ PortLab 是一个本地部署的个人投资分析平台：**定投回测、MA12
 | 数据库 | MySQL 8.x |
 | 前端 | Vue 3 + Vite + ECharts 5 + Vue Router + Axios |
 | 数据源 | AkShare（默认，东财优先 + 腾讯回退）/ Tushare Pro（可选） |
-| 包管理 | uv（后端）/ npm（前端） |
-| 部署 | Docker Compose 一键启停 |
+| MCP | FastMCP（Streamable HTTP），独立容器，仅 fastmcp + httpx |
+| 包管理 | uv（后端 / mcp）/ npm（前端） |
+| 部署 | Docker Compose 一键启停（mysql + backend + mcp + frontend） |
 
 ## 快速启动
 
@@ -37,17 +39,19 @@ PortLab 是一个本地部署的个人投资分析平台：**定投回测、MA12
 # 1. 准备环境变量（可选，文件内含默认值可直接用）
 cp .env.example .env
 
-# 2. 一键构建并启动 mysql + backend + frontend
+# 2. 一键构建并启动 mysql + backend + mcp + frontend
 docker compose up -d --build
 
 # 3. 验证
 curl http://localhost:8010/api/health   # {"code":0,"message":"success","data":{"status":"ok"}}
+curl http://localhost:8020/healthz      # MCP server：{"status":"ok","tool_count":32,...}
 ```
 
 启动后访问：
 
 - 前端：http://localhost:5173
 - 后端 API / Swagger 文档：http://localhost:8010/docs
+- MCP Server（LLM 连）：http://localhost:8020/mcp （Streamable HTTP）
 
 **启用 Tushare（可选）**：在前端右上角钥匙图标面板填入 [Tushare Pro Token](https://tushare.pro/register) 并打开开关；或在 `.env` 设 `TUSHARE_TOKEN`。开关关闭即回退 AkShare 免费数据，Token 保留不删。
 
@@ -79,6 +83,16 @@ npm run dev                 # http://localhost:5173 ，/api 默认代理到 http
 ```
 
 本地裸跑前后端时，可在 `frontend/vite.config.ts` 中把代理目标改为 `http://127.0.0.1:8010`（或设环境变量 `VITE_BACKEND_TARGET`）。
+
+### MCP Server（可选，LLM 接入）
+
+```bash
+cd mcp_server
+uv sync
+PORTLAB_API_BASE=http://localhost:8010/api \
+MCP_REGISTRY_PATH=../docs/api-registry.yaml \
+uv run python -m portlab_mcp.server   # http://localhost:8020/mcp
+```
 
 ### 数据库
 
@@ -120,6 +134,9 @@ npm run dev                 # http://localhost:5173 ，/api 默认代理到 http
 | 更新日志 | GET | `/api/release-notes` | 最新 5 条 |
 | Roadmap | GET | `/api/roadmap` | 未实现任务（TASKS.md ☐） |
 | 反馈 | GET/POST/DELETE | `/api/feedback` | 问题反馈 |
+| MCP 状态 | GET | `/api/mcp/status` | MCP server 连接状态（前端状态面板，expose=false 不回环给 MCP） |
+
+> **MCP Server**（`mcp_server/`，独立容器 `:8020`）：把上表只读查询 + 回测创建类接口包装成 32 个 MCP tool，供 LLM 调用。配置与用法见 [`mcp_server/README.md`](mcp_server/README.md)；接口暴露清单与治理见 [`docs/api-registry.yaml`](docs/api-registry.yaml)。
 
 ### 运维 CLI
 
@@ -139,7 +156,11 @@ portlab/
 ├── docker-compose.yml
 ├── .env.example
 ├── TASKS.md                      # 任务索引（☑/☐，roadmap 数据源）
-├── docs/tasks/                   # 任务拆解文档 001–024 + 验收待确认
+├── docs/
+│   ├── tasks/                   # 任务拆解文档 001–026 + 验收待确认
+│   └── api-registry.yaml        # 接口契约单一事实源（MCP 暴露治理）
+├── mcp_server/                   # MCP Server（独立容器）：fastmcp + httpx，32 tool + chart 降采样
+│   └── src/portlab_mcp/          # server / client / transforms / registry_loader / tools/
 ├── mysql/{init,migrations}/      # 建表 / 升级 SQL
 ├── backend/app/
 │   ├── main.py                   # FastAPI 入口（路由注册 + 启动自愈建表）
@@ -164,4 +185,4 @@ portlab/
 
 ## 任务进度
 
-任务索引见 `TASKS.md`，详情见 `docs/tasks/`。当前 001–020、022–024 已完成；**021（股息率 / DCF 估值回测）待实现**（依赖估值看板补出股息率历史序列，本期 csindex 仅当日快照）。
+任务索引见 `TASKS.md`，详情见 `docs/tasks/`。当前 001–020、022–026 已完成（025 修复 POST 创建控制流 bug，026 新增 MCP Server）；**021（股息率 / DCF 估值回测）待实现**（依赖估值看板补出股息率历史序列，本期 csindex 仅当日快照）。

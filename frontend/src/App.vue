@@ -3,6 +3,7 @@ import { theme, toggleTheme } from './composables/useTheme'
 import { GITHUB_REPO } from './config'
 import DataSourceWidget from './components/DataSourceWidget.vue'
 import FeedbackWidget from './components/FeedbackWidget.vue'
+import McpStatusWidget from './components/McpStatusWidget.vue'
 import ReleaseNotesWidget from './components/ReleaseNotesWidget.vue'
 </script>
 
@@ -30,6 +31,7 @@ import ReleaseNotesWidget from './components/ReleaseNotesWidget.vue'
         <RouterLink to="/event">事件看板</RouterLink>
       </nav>
       <div class="nav-actions">
+        <McpStatusWidget />
         <FeedbackWidget />
         <DataSourceWidget />
         <ReleaseNotesWidget />

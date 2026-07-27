@@ -1,0 +1,353 @@
+# PortLab API Registry —— 接口契约单一事实源
+#
+# 维护规则：
+#   - backend 新增/修改/删除接口时，同步更新本文件；
+#   - mcp_server 启动时读本文件，对 mcp.expose=true 的接口注册 MCP tool；
+#   - 改完 YAML 重启 mcp 容器即生效（compose 把本文件只读挂载进容器）。
+#
+# 字段说明：
+#   path / method       backend 路由（不含 /api 前缀；mcp_client 调用时再拼）
+#   desc                一句话功能（MCP tool description 直接用）
+#   mcp.expose          是否暴露给 LLM（true / false）
+#   mcp.tool_name       暴露时的 tool 名（snake_case；expose=false 时省略）
+#   mcp.group           暴露时的分组标签（system / market / backtest / drawboard / event / arena），
+#                       仅供前端状态面板与 /healthz 分组展示，不影响调用
+#   mcp.sample          降采样策略（none / chart80 / event_impact）
+#                         none          原样返回
+#                         chart80       数组降采样到 ~80 点（保留首尾 + 买卖信号日）
+#                         event_impact  事件冲击三视图（window_returns / benchmark_series 按各自 dates 降采样，
+#                                       correlation_matrix / ranking 等小对象不动）
+#   mcp.hide_reason     expose=false 时的隐藏原因
+#   params              简单 query/path 参数内联定义（type / required / default / desc）
+#   params_ref          复杂请求体引用 backend Pydantic schema（仅文档用；mcp 侧重定义精简版入参，
+#                       见 mcp_server/src/portlab_mcp/params.py）
+#   notes               特殊注意事项（慢 / 副作用 / 修复状态 等）
+
+version: 1
+generated_at: "2026-07-28"
+
+endpoints:
+  # ===== 系统 / 元信息 =====
+  - path: /health
+    method: GET
+    desc: 健康检查
+    mcp: {expose: true, tool_name: health_check, group: system, sample: none}
+
+  - path: /roadmap
+    method: GET
+    desc: 未完成任务列表（TASKS.md 中 ☐ 项）
+    mcp: {expose: true, tool_name: get_roadmap, group: system, sample: none}
+
+  - path: /release-notes
+    method: GET
+    desc: 最新 5 条更新日志
+    mcp: {expose: true, tool_name: get_release_notes, group: system, sample: none}
+
+  - path: /backtest/recent
+    method: GET
+    desc: 最近手动保存的回测记录（合并各策略）
+    mcp: {expose: true, tool_name: get_recent_backtests, group: system, sample: none}
+    params: {limit: {type: int, default: 5, desc: "返回条数 1-20"}}
+
+  - path: /symbols/search
+    method: GET
+    desc: A 股代码 / 名称模糊搜索（返回 top 30）
+    mcp: {expose: true, tool_name: search_symbols, group: system, sample: none}
+    params: {q: {type: str, required: true, desc: "搜索关键词（代码或名称片段）"}}
+
+  # ===== 数据与配置（全部隐藏）=====
+  - path: /data/fetch
+    method: POST
+    desc: 触发行情拉取（慢，易触发限频）
+    mcp: {expose: false, hide_reason: "拉数慢，LLM 高频试探会触发 akshare/tushare 限频"}
+
+  - path: /datasource/status
+    method: GET
+    desc: 数据源状态（开关 / 掩码 token / 当前源）
+    mcp: {expose: false, hide_reason: "配置类，与 LLM 分析任务无关"}
+
+  - path: /datasource/token
+    method: PUT
+    desc: 设置 Tushare Token
+    mcp: {expose: false, hide_reason: "敏感配置写入，禁止 LLM 调用"}
+
+  - path: /datasource/token
+    method: DELETE
+    desc: 清空 Token
+    mcp: {expose: false, hide_reason: "敏感配置删除，禁止 LLM 调用"}
+
+  - path: /datasource/toggle
+    method: PUT
+    desc: 开关 Tushare
+    mcp: {expose: false, hide_reason: "配置切换，禁止 LLM 调用"}
+
+  # ===== DCA 定投回测 =====
+  - path: /backtest/dca
+    method: POST
+    desc: 创建定投回测（幂等命中即返回已有 task_id）
+    mcp: {expose: true, tool_name: run_dca_backtest, group: backtest, sample: none}
+    params_ref: app.schemas.backtest.BacktestRequest
+    notes: "已修复（commit 2859567）。DCA 创建链路可用。"
+
+  - path: /backtest/dca/preview
+    method: POST
+    desc: 实时预览定投回测（不落库）
+    mcp: {expose: false, hide_reason: "与创建重复，preview 不落库对 LLM 用途有限"}
+
+  - path: /backtest/dca/{task_id}/chart
+    method: GET
+    desc: 定投回测逐日图表（降采样到 ~80 点，保留买卖信号日）
+    mcp: {expose: true, tool_name: get_dca_chart, group: backtest, sample: chart80}
+    params: {task_id: {type: str, required: true, desc: "回测任务 ID"}}
+
+  - path: /backtest/dca/{task_id}/summary
+    method: GET
+    desc: 定投回测汇总指标（投入 / 收益 / 年化 / 回撤 / 胜率 / 买卖次数）
+    mcp: {expose: true, tool_name: get_dca_summary, group: backtest, sample: none}
+    params: {task_id: {type: str, required: true, desc: "回测任务 ID"}}
+
+  # ===== MA120 红利策略回测 =====
+  - path: /backtest/ma120
+    method: POST
+    desc: 创建 MA120 策略回测（跌破 MA120 × 阈值金字塔分批买）
+    mcp: {expose: true, tool_name: run_ma120_backtest, group: backtest, sample: none}
+    params_ref: app.schemas.ma120.Ma120Request
+    notes: "已修复（commit c315f81，025）。MA120 创建链路可用。"
+
+  - path: /backtest/ma120/preview
+    method: POST
+    desc: 实时预览 MA120 回测（不落库）
+    mcp: {expose: false, hide_reason: "与创建重复"}
+
+  - path: /backtest/ma120/{task_id}/chart
+    method: GET
+    desc: MA120 回测逐日图表（降采样到 ~80 点，保留买卖信号日 + MA 线）
+    mcp: {expose: true, tool_name: get_ma120_chart, group: backtest, sample: chart80}
+    params: {task_id: {type: str, required: true, desc: "回测任务 ID"}}
+
+  - path: /backtest/ma120/{task_id}/summary
+    method: GET
+    desc: MA120 回测汇总（投入 / 收益 / 年化 / 回撤 / 胜率 / 买卖次数）
+    mcp: {expose: true, tool_name: get_ma120_summary, group: backtest, sample: none}
+    params: {task_id: {type: str, required: true, desc: "回测任务 ID"}}
+
+  # ===== 网格交易回测 =====
+  - path: /backtest/grid
+    method: POST
+    desc: 创建网格交易回测（中枢 + 间距双向触发）
+    mcp: {expose: true, tool_name: run_grid_backtest, group: backtest, sample: none}
+    params_ref: app.schemas.grid.GridRequest
+    notes: "已修复（commit c315f81，025）。网格创建链路可用。"
+
+  - path: /backtest/grid/preview
+    method: POST
+    desc: 实时预览网格回测（不落库）
+    mcp: {expose: false, hide_reason: "与创建重复"}
+
+  - path: /backtest/grid/{task_id}/chart
+    method: GET
+    desc: 网格回测逐日图表（降采样到 ~80 点，保留 grid_levels / 买卖信号日）
+    mcp: {expose: true, tool_name: get_grid_chart, group: backtest, sample: chart80}
+    params: {task_id: {type: str, required: true, desc: "回测任务 ID"}}
+
+  - path: /backtest/grid/{task_id}/summary
+    method: GET
+    desc: 网格回测汇总（网格利润 / 循环次数 / 年化 / 回撤）
+    mcp: {expose: true, tool_name: get_grid_summary, group: backtest, sample: none}
+    params: {task_id: {type: str, required: true, desc: "回测任务 ID"}}
+
+  # ===== 组合回测 =====
+  - path: /backtest/portfolio
+    method: POST
+    desc: 创建组合回测（fixed 指定权重 / frontier 求有效前沿最优权重）
+    mcp: {expose: true, tool_name: run_portfolio_backtest, group: backtest, sample: none}
+    params_ref: app.schemas.portfolio.PortfolioRequest
+    notes: "已核查正常。组合创建链路可用。"
+
+  - path: /backtest/portfolio/{task_id}/chart
+    method: GET
+    desc: 组合回测图表（降采样到 ~80 点；相关性矩阵 / 前沿点等小对象不降采样）
+    mcp: {expose: true, tool_name: get_portfolio_chart, group: backtest, sample: chart80}
+    params: {task_id: {type: str, required: true, desc: "回测任务 ID"}}
+
+  - path: /backtest/portfolio/{task_id}/summary
+    method: GET
+    desc: 组合回测汇总（年化 / 波动 / 夏普 / 回撤 / 权重）
+    mcp: {expose: true, tool_name: get_portfolio_summary, group: backtest, sample: none}
+    params: {task_id: {type: str, required: true, desc: "回测任务 ID"}}
+
+  # ===== 回撤买入 drawboard =====
+  - path: /drawboard/series
+    method: GET
+    desc: 价格 + 回撤 + 基准底图序列（标的组与基准组各自降采样）
+    mcp: {expose: true, tool_name: get_drawboard_series, group: drawboard, sample: chart80}
+    params:
+      symbol: {type: str, required: true, desc: "标的代码（6 位）"}
+      start: {type: date, desc: "起始日期 YYYY-MM-DD"}
+      end: {type: date, desc: "结束日期 YYYY-MM-DD"}
+
+  - path: /drawboard/backtest
+    method: GET
+    desc: 实时重算回撤买入回测（不落库，含 sell_mode 三模式）
+    mcp: {expose: true, tool_name: run_drawboard_realtime, group: drawboard, sample: chart80}
+    params_ref: app.schemas.drawboard.DrawboardRequest
+
+  - path: /drawboard/save
+    method: POST
+    desc: 保存回撤回测到库（返回 task_id，幂等）
+    mcp: {expose: true, tool_name: save_drawboard_backtest, group: drawboard, sample: none}
+    params_ref: app.schemas.drawboard.DrawboardRequest
+    notes: "已修复（commit c315f81，025）。drawboard save 链路可用。"
+
+  - path: /drawboard/{task_id}/chart
+    method: GET
+    desc: 落库回撤回测图表（降采样）
+    mcp: {expose: true, tool_name: get_drawboard_chart, group: drawboard, sample: chart80}
+    params: {task_id: {type: str, required: true, desc: "回测任务 ID"}}
+
+  - path: /drawboard/{task_id}/summary
+    method: GET
+    desc: 落库回撤回测汇总（投入 / 收益 / 年化 / 回撤 / 买卖次数 / sell_mode）
+    mcp: {expose: true, tool_name: get_drawboard_summary, group: drawboard, sample: none}
+    params: {task_id: {type: str, required: true, desc: "回测任务 ID"}}
+
+  # ===== 估值看板（024 已交付，三条新端点启用）=====
+  - path: /valuation/indices
+    method: GET
+    desc: 指数下拉项（12 条登记，含 supported 灰显与无数据说明）
+    mcp: {expose: true, tool_name: get_valuation_indices, group: market, sample: none}
+
+  - path: /valuation/single
+    method: GET
+    desc: 单指数 PE 通道（5 条线）+ 历史分位 + 当前 PE/PB/股息率
+    mcp: {expose: true, tool_name: get_valuation_single, group: market, sample: none}
+    params:
+      symbol: {type: str, required: true, desc: "指数代码如 000300（沪深300）/ 000922（中证红利）"}
+      lookback: {type: str, default: "5y", desc: "回看窗口 1y/3y/5y/7y/10y/all"}
+      start_date: {type: date, desc: "自定义起始（覆盖 lookback）"}
+      end_date: {type: date, desc: "自定义结束"}
+
+  - path: /valuation/overlay
+    method: GET
+    desc: 多指数 PE 归一化叠加（降采样，各 series 同步切片）
+    mcp: {expose: true, tool_name: get_valuation_overlay, group: market, sample: chart80}
+    params:
+      symbols: {type: str, required: true, desc: "逗号分隔多指数代码，如 000300,000922"}
+      base: {type: int, default: 1, desc: "归一化基准 1 或 1000"}
+      lookback: {type: str, default: "5y", desc: "回看窗口"}
+      start_date: {type: date}
+      end_date: {type: date}
+
+  - path: /valuation
+    method: GET
+    desc: 016 旧端点（向后兼容，转发到 single）
+    mcp: {expose: false, hide_reason: "已被 /valuation/single 取代；MCP 用新端点"}
+
+  # ===== 市场 / 资金流 =====
+  - path: /market/overview
+    method: GET
+    desc: 市场概览（预置指数最新价 / 涨跌 / sparkline，可加 extra）
+    mcp: {expose: true, tool_name: get_market_overview, group: market, sample: none}
+    params: {extra: {type: str, desc: "可选自定义指数代码"}}
+
+  - path: /etf-flow
+    method: GET
+    desc: ETF 三信号（份额变动 / 北向 / 主力，Tushare）
+    mcp: {expose: true, tool_name: get_etf_flow, group: market, sample: none}
+    params:
+      symbol: {type: str, default: "510880", desc: "ETF 代码"}
+      start: {type: date}
+      end: {type: date}
+
+  # ===== 事件冲击产业链（只暴露只读子集）=====
+  - path: /event/themes
+    method: GET
+    desc: 全部事件主题模板（含成分股数量）
+    mcp: {expose: true, tool_name: get_event_themes, group: event, sample: none}
+
+  - path: /event/themes/{theme_id}
+    method: GET
+    desc: 主题详情（含成分股清单）
+    mcp: {expose: true, tool_name: get_event_theme_detail, group: event, sample: none}
+    params: {theme_id: {type: int, required: true, desc: "主题 ID"}}
+
+  - path: /event/llm-config
+    method: GET
+    desc: LLM 配置状态（含 api_key 掩码）
+    mcp: {expose: false, hide_reason: "含 api_key 掩码，配置类不暴露"}
+
+  - path: /event/llm-config
+    method: PUT
+    desc: 设置 LLM 配置
+    mcp: {expose: false, hide_reason: "敏感配置写入"}
+
+  - path: /event/smart-match
+    method: POST
+    desc: LLM 智能匹配事件标的
+    mcp: {expose: false, hide_reason: "LLM-in-LLM 放大延迟与成本，且需先配 LLM"}
+
+  - path: /event/concept-stocks
+    method: GET
+    desc: 拉概念板块成分股
+    mcp: {expose: false, hide_reason: "实时拉数慢，且为 smart-match 的辅助接口"}
+
+  - path: /event
+    method: POST
+    desc: 创建事件
+    mcp: {expose: false, hide_reason: "写操作"}
+
+  - path: /event/{event_id}
+    method: GET
+    desc: 事件详情
+    mcp: {expose: true, tool_name: get_event_detail, group: event, sample: none}
+    params: {event_id: {type: int, required: true, desc: "事件 ID"}}
+
+  - path: /event/{event_id}/stocks
+    method: PUT
+    desc: 更新事件标的池
+    mcp: {expose: false, hide_reason: "写操作"}
+
+  - path: /event/{event_id}/impact
+    method: GET
+    desc: 事件冲击三视图（归一化收益 + 涨跌排行 + 相关性热力图，window_returns 降采样）
+    mcp: {expose: true, tool_name: get_event_impact, group: event, sample: event_impact}
+    params:
+      event_id: {type: int, required: true, desc: "事件 ID"}
+      before: {type: int, default: 20, desc: "事件前窗口 0-120 交易日"}
+      after: {type: int, default: 20, desc: "事件后窗口 0-120 交易日"}
+
+  # ===== 擂台 =====
+  - path: /arena/compare
+    method: GET
+    desc: 策略横向对比（cross_strategy 同标的多策略 / cross_symbol 同策略多标的）
+    mcp: {expose: true, tool_name: compare_strategies, group: arena, sample: chart80}
+    params:
+      mode: {type: str, required: true, desc: "cross_strategy 或 cross_symbol"}
+      symbol: {type: str, desc: "cross_strategy 模式必填"}
+      strategy: {type: str, desc: "cross_symbol 模式必填（dca/ma120/grid/drawboard）"}
+      symbols: {type: list, desc: "cross_symbol 模式下的标的列表（逗号分隔）"}
+      start: {type: date}
+      end: {type: date}
+
+  # ===== 反馈（全部隐藏）=====
+  - path: /feedback
+    method: POST
+    desc: 提交反馈
+    mcp: {expose: false, hide_reason: "反馈系统，与 LLM 分析无关"}
+
+  - path: /feedback
+    method: GET
+    desc: 反馈列表
+    mcp: {expose: false, hide_reason: "同上"}
+
+  - path: /feedback/{fb_id}
+    method: DELETE
+    desc: 删除反馈
+    mcp: {expose: false, hide_reason: "写操作 + 与分析无关"}
+
+  # ===== MCP 状态（Part C，前端用；不暴露给 MCP 自身避免循环）=====
+  - path: /mcp/status
+    method: GET
+    desc: MCP server 连接状态（供前端状态面板）
+    mcp: {expose: false, hide_reason: "MCP 自举状态接口，暴露给 MCP 自身是循环依赖；仅供前端面板调用"}
+    notes: "Part C 新增。返回 {enabled, mcp_url, backend_reachable, tool_count, tools[], last_check}"
