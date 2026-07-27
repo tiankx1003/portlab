@@ -89,6 +89,10 @@ def _seed_release_notes_if_empty(db) -> None:
         text(
             "INSERT INTO release_notes (title, type, detail, released_at, "
             "is_deleted, created_at) VALUES "
+            "('修复 MA120/网格/回撤 POST 创建不落库', 'bugfix', "
+            "'ma120/grid/drawboard 三个 POST 创建接口幂等命中 return 误在 if 块外，"
+            "致补数据/计算/落库全部不可达、GET 结果必报「未找到」；三处 return 收进 if 块后链路恢复', "
+            "'2026-07-28', 0, UTC_TIMESTAMP()), "
             "('估值看板 v2：PE 通道 + 多指数叠加', 'feature', "
             "'7 指数(lg+csindex 双源) + PE 5 通道(极高/偏高/中位/偏低/极低) + "
             "多指数 PE 归一化叠加 + 时间窗口；4 个无数据指数灰显，修复 016 创业板指 KeyError', "

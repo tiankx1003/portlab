@@ -58,10 +58,12 @@ def create_grid(req: GridRequest, db: Session = Depends(get_db)) -> ApiResponse:
     )
     task_id = make_task_id(params)
 
+    # 幂等命中：同参数已算过则直接返回 task_id，跳过重复计算与重复拉取
     if db.get(ResultGridSummary, task_id) is not None:
         log_save(db, task_id, "grid", req.symbol)
-    return ApiResponse.ok(data=GridCreated(task_id=task_id))
+        return ApiResponse.ok(data=GridCreated(task_id=task_id))
 
+    # 未命中：补数据 → 计算 → 落库
     err = ensure_price_data(db, req.symbol, req.start_date, req.end_date)
     if err:
         return ApiResponse.error(message=err)

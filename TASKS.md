@@ -28,3 +28,5 @@
 | 022 | [组合回测（含有效前沿/最优权重）](docs/tasks/022-portfolio-backtest.md) | 多标的组合收益/回撤/波动 + 马科维茨有效前沿求最优权重 | ☑ |
 | 023 | [策略擂台（横向对比）](docs/tasks/023-strategy-arena.md) | 同标的多策略/同策略多标的对比，归一化净值+指标表，消费四策略 summary | ☑ |
 | 024 | [估值看板 v2：PE 通道 + 多指数叠加 + 双源补强](docs/tasks/024-valuation-v2.md) | 7 指数（lg+csindex 双源）+ PE 5 通道 + 多指数叠加归一化 + 时间窗口；补强 016 简化 MVP，4 个无数据指数灰显 | ☑ |
+| 025 | [修复 POST 创建接口幂等命中 return 缩进 bug](docs/tasks/025-fix-post-create-bug.md) | ma120/grid/drawboard 三处 return 未缩进进 if 块致落库不可达；一行缩进修复 + 端到端验证 | ☑ |
+| 026 | [PortLab MCP Server（API 暴露给 LLM）](docs/tasks/026-mcp-server.md) | 独立容器 + HTTP 传输，30 tool（只读+回测创建），chart 降采样 ~80 点，api-registry.yaml 契约表治理接口漂移；导航栏右上角 MCP 图标 + 状态面板（连接地址/工具列表/一键复制配置）；依赖 025 | ☐ |
