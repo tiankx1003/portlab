@@ -32,8 +32,8 @@ import ReleaseNotesWidget from './components/ReleaseNotesWidget.vue'
       </nav>
       <div class="nav-actions">
         <McpStatusWidget />
-        <FeedbackWidget />
         <DataSourceWidget />
+        <FeedbackWidget />
         <ReleaseNotesWidget />
         <a
           class="nav-icon-btn github-link"

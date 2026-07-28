@@ -114,7 +114,7 @@ function formatTime(iso: string): string {
       <g
         fill="currentColor"
         stroke="currentColor"
-        stroke-width="56"
+        stroke-width="30"
         stroke-linejoin="round"
         stroke-linecap="round"
       >
