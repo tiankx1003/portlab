@@ -57,3 +57,4 @@ mysql/data/
 backend/.venv/
 frontend/node_modules/
 frontend/dist/
+mcp_server/api-registry.yaml
