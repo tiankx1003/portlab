@@ -700,6 +700,39 @@ export async function getEtfFlow(
   return res.data
 }
 
+// ---- pcf pressure: ETF 申赎→成份股压力（PCF 联动）----
+export interface PcfPressureItem {
+  stock_code: string
+  stock_short: string | null
+  number: number | null
+  type: '实物' | '现金替代'
+  est_shares: number // 带方向：正=净买、负=净卖
+  est_amount: number | null
+}
+
+export interface PcfPressureData {
+  symbol: string
+  name: string
+  available: boolean
+  reason?: string
+  snapshot_day: string | null
+  source?: string
+  creation_redemption_unit: number | null
+  unit_source?: 'day_info' | 'default'
+  shares_change: number | null // 万份
+  net_units: number | null // 带方向
+  direction?: 'subscription' | 'redemption' | null
+  items: PcfPressureItem[]
+  note?: string
+}
+
+export async function getPcfPressure(symbol: string): Promise<ApiResponse<PcfPressureData>> {
+  const res = await http.get<ApiResponse<PcfPressureData>>('/pcf-pressure', {
+    params: { symbol },
+  })
+  return res.data
+}
+
 // ---- valuation: 估值温度计（016）----
 export interface ValuationData {
   available: boolean

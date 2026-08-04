@@ -6,6 +6,7 @@ from decimal import Decimal
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.orm import Session
 
+from ..models.etf_share import RawEtfShareDaily
 from ..models.raw import RawPriceDaily
 from ..models.valuation import RawIndexValuationDaily
 from .fetcher import PriceBar
@@ -92,3 +93,21 @@ def upsert_dividend_snapshot(
     stmt = stmt.on_duplicate_key_update(dividend_yield=stmt.inserted.dividend_yield)
     db.execute(stmt)
     db.commit()
+
+
+def upsert_etf_shares(db: Session, rows: list[dict]) -> int:
+    """ETF 每日份额写入 ``raw_etf_share_daily``（UPSERT 幂等）。
+
+    主键 ``(symbol, trade_date)`` 冲突时更新 fd_share/source。返回写入条数。
+    rows 元素：{"symbol", "trade_date", "fd_share", "source"}。
+    """
+    if not rows:
+        return 0
+    stmt = mysql_insert(RawEtfShareDaily).values(rows)
+    stmt = stmt.on_duplicate_key_update(
+        fd_share=stmt.inserted.fd_share,
+        source=stmt.inserted.source,
+    )
+    db.execute(stmt)
+    db.commit()
+    return len(rows)

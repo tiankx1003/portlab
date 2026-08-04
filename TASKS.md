@@ -30,3 +30,5 @@
 | 024 | [估值看板 v2：PE 通道 + 多指数叠加 + 双源补强](docs/tasks/024-valuation-v2.md) | 7 指数（lg+csindex 双源）+ PE 5 通道 + 多指数叠加归一化 + 时间窗口；补强 016 简化 MVP，4 个无数据指数灰显 | ☑ |
 | 025 | [修复 POST 创建接口幂等命中 return 缩进 bug](docs/tasks/025-fix-post-create-bug.md) | ma120/grid/drawboard 三处 return 未缩进进 if 块致落库不可达；一行缩进修复 + 端到端验证 | ☑ |
 | 026 | [PortLab MCP Server（API 暴露给 LLM）](docs/tasks/026-mcp-server.md) | 独立容器 + HTTP 传输，32 tool（只读+回测创建），chart 降采样 ~80 点，api-registry.yaml 契约表治理接口漂移；导航栏右上角 MCP 图标 + 状态面板（连接地址/工具列表/一键复制配置）；依赖 025 | ☑ |
+| 027 | [股债比价看板](docs/tasks/027-equity-bond.md) | EP/股息率 ÷ 十年期国债；滚动均值+±1/±2/±3σ 通道（3/5/10年窗口），右轴指数点位；国债(bond_zh_us_rate)+指数点位(stock_zh_index_daily)新建表，PE 复用 024 | ☐ |
+| 028 | [ETF PCF 申购赎回清单（爬虫入库 + 流向联动 + 懒加载）](docs/tasks/028-etf-pcf.md) | 华宝/华泰柏瑞 PCF 爬虫落库(raw_pcf_basket/day_info)；份额变动×篮子×最小申赎单位估成份股申赎压力(资金流向看板联动区块)；点击加载按需自动发现源补抓入库，免手动跑爬虫 | ☑ |

@@ -26,6 +26,7 @@ from .api import (
     ma120,
     market,
     mcp,
+    pcf_pressure,
     portfolio,
     recent,
     release_note,
@@ -90,6 +91,10 @@ def _seed_release_notes_if_empty(db) -> None:
         text(
             "INSERT INTO release_notes (title, type, detail, released_at, "
             "is_deleted, created_at) VALUES "
+            "('ETF PCF 申赎清单：爬虫入库 + 流向联动 + 懒加载', 'feature', "
+            "'华宝/华泰柏瑞 PCF 爬虫落库；份额变动×篮子×最小申赎单位估成份股申赎压力，"
+            "资金流向看板加联动区块；点击加载按需自动发现源补抓入库，免手动跑爬虫', "
+            "'2026-08-02', 0, UTC_TIMESTAMP()), "
             "('修复 MA120/网格/回撤 POST 创建不落库', 'bugfix', "
             "'ma120/grid/drawboard 三个 POST 创建接口幂等命中 return 误在 if 块外，"
             "致补数据/计算/落库全部不可达、GET 结果必报「未找到」；三处 return 收进 if 块后链路恢复', "
@@ -294,6 +299,29 @@ def _ensure_valuation_tables() -> None:
         logger.warning("启动自愈（估值看板 v2 表）失败: %s", e)
 
 
+def _ensure_pcf_tables() -> None:
+    """启动自愈：PCF（026）+ ETF 份额表。
+
+    raw_pcf_basket / raw_pcf_day_info（PCF 爬虫落库）+ raw_etf_share_daily（份额联动）。
+    CREATE TABLE IF NOT EXISTS 建表（幂等）；覆盖未跑 init/13-14 或 migrations/014-015 的裸机场景。
+    """
+    try:
+        from .database import Base, engine
+        from .models.etf_share import RawEtfShareDaily
+        from .models.pcf import RawPcfBasket, RawPcfDayInfo
+
+        Base.metadata.create_all(
+            engine,
+            tables=[
+                RawPcfBasket.__table__,
+                RawPcfDayInfo.__table__,
+                RawEtfShareDaily.__table__,
+            ],
+        )
+    except Exception as e:  # noqa: BLE001 - 自愈失败不阻断启动
+        logger.warning("启动自愈（PCF/份额表）失败: %s", e)
+
+
 def _seed_index_registry(db) -> None:
     """index_registry 为空时预置 12 行（幂等）。与 init/12 同源。"""
     from sqlalchemy import func, select
@@ -367,6 +395,7 @@ async def lifespan(app: FastAPI):
     _ensure_grid_tables()
     _ensure_portfolio_tables()
     _ensure_valuation_tables()
+    _ensure_pcf_tables()
     # 启动时后台预热 A 股标的目录，使名称解析（图表标题）稳定可用
     threading.Thread(target=symbol_catalog.warmup, daemon=True).start()
     yield
@@ -412,6 +441,7 @@ app.include_router(roadmap.router, prefix="/api/roadmap", tags=["roadmap"])  # /
 app.include_router(drawboard.router, prefix="/api/drawboard", tags=["drawboard"])
 app.include_router(valuation.router, prefix="/api/valuation", tags=["valuation"])  # /api/valuation
 app.include_router(etf_flow.router, prefix="/api/etf-flow", tags=["etf-flow"])  # /api/etf-flow
+app.include_router(pcf_pressure.router, prefix="/api/pcf-pressure", tags=["pcf-pressure"])
 app.include_router(event_dashboard.router, prefix="/api/event", tags=["event"])  # /api/event
 app.include_router(arena.router, prefix="/api/arena", tags=["arena"])  # /api/arena/compare
 app.include_router(mcp.router, prefix="/api/mcp", tags=["mcp"])  # /api/mcp/status（前端状态面板）
