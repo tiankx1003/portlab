@@ -3,6 +3,7 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 \
     UV_LINK_MODE=copy \
     UV_PROJECT_ENVIRONMENT=/app/.venv \
+    PYTHONPATH=/app/src \
     PATH="/app/.venv/bin:$PATH"
 
 # fastmcp 依赖 httpx/pydantic，运行期无需额外系统库；仅装 ca-certificates 保证 HTTPS。
@@ -22,7 +23,7 @@ RUN uv sync --no-dev
 # 再拷源码
 COPY src/ ./src/
 
-# 契约表由 compose 以只读卷挂载到 /app/api-registry.yaml，改 YAML 重启即生效，无需重 build。
+# 契约表由 compose 以只读卷挂载到 /docs/api-registry.yaml（见 docker-compose.yml），改 YAML 重启即生效，无需重 build。
 EXPOSE 8020
 
 CMD [".venv/bin/python", "-m", "portlab_mcp.server"]

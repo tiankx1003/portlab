@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { getMcpStatus, type McpStatusData, type McpToolItem } from '../api'
 
 const show = ref(false)
@@ -70,6 +70,9 @@ function close() {
   show.value = false
 }
 
+// 挂载即拉取状态，使导航栏图标颜色（运行中=绿）在页面刷新后立即正确显示
+onMounted(load)
+
 async function copy(text: string, tag: 'url' | 'config') {
   try {
     if (navigator.clipboard?.writeText) {
@@ -104,7 +107,14 @@ function formatTime(iso: string): string {
 </script>
 
 <template>
-  <button class="mcp-btn" type="button" title="MCP Server" aria-label="MCP Server 状态" @click="open">
+  <button
+    class="mcp-btn"
+    :class="{ running: lightColor === 'green' }"
+    type="button"
+    :title="`MCP Server（${lightText}）`"
+    aria-label="MCP Server 状态"
+    @click="open"
+  >
     <svg
       class="mcp-icon"
       viewBox="0 0 1024 1024"
@@ -241,6 +251,13 @@ function formatTime(iso: string): string {
   color: var(--text);
   background: var(--hover-bg);
 }
+/* 运行中：图标转绿（accent-green）一眼可辨 MCP 在线；非运行中保持次要灰 */
+.mcp-btn.running {
+  color: var(--accent-green);
+}
+.mcp-btn.running:hover {
+  color: var(--accent-green);
+}
 .mcp-icon {
   width: 20px;
   height: 20px;
@@ -327,7 +344,7 @@ function formatTime(iso: string): string {
 }
 /* 绿=运行中 / 灰=未启动 / 黄=后端不通（与 A 股惯例分离，仅表连接状态） */
 .d-green {
-  background: #3ba272;
+  background: var(--accent-green);
 }
 .d-grey {
   background: #8a8f99;

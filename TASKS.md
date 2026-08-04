@@ -30,5 +30,9 @@
 | 024 | [估值看板 v2：PE 通道 + 多指数叠加 + 双源补强](docs/tasks/024-valuation-v2.md) | 7 指数（lg+csindex 双源）+ PE 5 通道 + 多指数叠加归一化 + 时间窗口；补强 016 简化 MVP，4 个无数据指数灰显 | ☑ |
 | 025 | [修复 POST 创建接口幂等命中 return 缩进 bug](docs/tasks/025-fix-post-create-bug.md) | ma120/grid/drawboard 三处 return 未缩进进 if 块致落库不可达；一行缩进修复 + 端到端验证 | ☑ |
 | 026 | [PortLab MCP Server（API 暴露给 LLM）](docs/tasks/026-mcp-server.md) | 独立容器 + HTTP 传输，32 tool（只读+回测创建），chart 降采样 ~80 点，api-registry.yaml 契约表治理接口漂移；导航栏右上角 MCP 图标 + 状态面板（连接地址/工具列表/一键复制配置）；依赖 025 | ☑ |
-| 027 | [股债比价看板](docs/tasks/027-equity-bond.md) | EP/股息率 ÷ 十年期国债；滚动均值+±1/±2/±3σ 通道（3/5/10年窗口），右轴指数点位；国债(bond_zh_us_rate)+指数点位(stock_zh_index_daily)新建表，PE 复用 024 | ☐ |
+| 027 | [股债比价看板](docs/tasks/027-equity-bond.md) | EP/股息率 ÷ 十年期国债；滚动均值+±1/±2/±3σ 通道（3/5/10年窗口），右轴指数点位；国债(bond_zh_us_rate)+指数点位(stock_zh_index_daily)新建表，PE 复用 024 → **并入 032，不再独立实现** | ☐ |
 | 028 | [ETF PCF 申购赎回清单（爬虫入库 + 流向联动 + 懒加载）](docs/tasks/028-etf-pcf.md) | 华宝/华泰柏瑞 PCF 爬虫落库(raw_pcf_basket/day_info)；份额变动×篮子×最小申赎单位估成份股申赎压力(资金流向看板联动区块)；点击加载按需自动发现源补抓入库，免手动跑爬虫 | ☑ |
+| 029 | [前端 dev server 配置化（端口 / 代理目标 / host 白名单）](docs/tasks/029-frontend-devserver-config.md) | VITE_PORT/VITE_BACKEND_TARGET/VITE_ALLOWED_HOSTS 三变量；修 VITE_BACKEND_TARGET 未透传隐患；vite.config.ts + Dockerfile + compose + .env | ☑ |
+| 030 | [修复 mcp 容器在 Docker Desktop 启动失败](docs/tasks/030-fix-mcp-docker-startup.md) | ① 嵌套 bind mount 冲突（改 ./docs:/docs:ro 整目录挂载）② PYTHONPATH 缺失（src 布局补 PYTHONPATH=/app/src）；两坑被首次挂载失败掩盖，mcp 此前未在 mac 真正跑起 | ☑ |
+| 031 | [导航栏图标状态化配色（钥匙 / MCP，主题适配）](docs/tasks/031-nav-icon-status-color.md) | 钥匙 Tushare 启用→金 / MCP 运行→绿、非运行→灰；新增主题变量 --accent-gold/--accent-green；修 MCP 刷新后不显色（补 onMounted） | ☑ |
+| 032 | [估值与信号看板（估值重构 + 三层共振）](docs/tasks/032-valuation-signal-board.md) | 三层共振信号看板：技术估值(MA120/回撤/PE/PB/股息率/股债比价)+大类资产(全收益vs5年均线+创业板/上证比+基金发行)+资金宏观(社融/M1M2/PMI/PPI/融资融券/北向)；AkShare为主+Tushare5000积分补强；吸收027，下线016旧码，复用024数据通路 | ☐ |

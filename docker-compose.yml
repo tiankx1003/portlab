@@ -53,17 +53,18 @@ services:
     container_name: portlab-mcp
     restart: unless-stopped
     environment:
-      # 容器间走服务名 backend；契约表挂载到 /app/api-registry.yaml（只读）
+      # 容器间走服务名 backend；契约表挂载到 /docs/api-registry.yaml（整个 docs 目录挂载，
+      # 避免 ./mcp_server:/app 下再单文件挂载在 Docker Desktop VirtioFS 下报 mountpoint 冲突）
       PORTLAB_API_BASE: http://backend:8010/api
       MCP_HTTP_PORT: "8020"
       MCP_HOST: "0.0.0.0"
-      MCP_REGISTRY_PATH: /app/api-registry.yaml
+      MCP_REGISTRY_PATH: /docs/api-registry.yaml
     ports:
       - "8020:8020"
     depends_on:
       - backend
     volumes:
-      - ./docs/api-registry.yaml:/app/api-registry.yaml:ro
+      - ./docs:/docs:ro
       - ./mcp_server:/app
       - /app/.venv
     command: [".venv/bin/python", "-m", "portlab_mcp.server"]
@@ -72,8 +73,13 @@ services:
     build: ./frontend
     container_name: portlab-frontend
     restart: unless-stopped
+    environment:
+      # 透传给 vite（见 frontend/vite.config.ts）；留空走默认
+      VITE_PORT: ${VITE_PORT:-5173}
+      VITE_BACKEND_TARGET: ${VITE_BACKEND_TARGET:-http://backend:8010}
+      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-}
     ports:
-      - "5173:5173"
+      - "${VITE_PORT:-5173}:${VITE_PORT:-5173}"
     depends_on:
       - backend
     volumes:

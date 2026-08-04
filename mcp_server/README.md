@@ -37,7 +37,7 @@ uv run python -m portlab_mcp.server
 | `PORTLAB_API_BASE` | `http://localhost:8010/api` | backend 基址；容器间为 `http://backend:8010/api` |
 | `MCP_HOST` | `0.0.0.0` | 监听地址（容器内需 0.0.0.0） |
 | `MCP_HTTP_PORT` | `8020` | 监听端口 |
-| `MCP_REGISTRY_PATH` | `/app/api-registry.yaml` | 契约表路径（compose 以只读卷挂载） |
+| `MCP_REGISTRY_PATH` | `/app/api-registry.yaml` | 契约表路径；compose 容器内为 `/docs/api-registry.yaml`（`./docs` 整目录只读挂载，避开与 `/app` 嵌套挂载在 Docker Desktop VirtioFS 下的冲突） |
 | `MCP_CHART_TARGET_POINTS` | `80` | chart 降采样目标点数 |
 
 ## 客户端配置

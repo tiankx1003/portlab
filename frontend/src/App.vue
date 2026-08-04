@@ -89,6 +89,8 @@ import ReleaseNotesWidget from './components/ReleaseNotesWidget.vue'
   --hint: #86909c;
   --primary: #1f6feb;
   --primary-disabled: #9aa4b2;
+  --accent-gold: #bf8700;
+  --accent-green: #1a7f37;
   --input-border: #d9d9d9;
   --hover-bg: #f2f3f5;
   --error-bg: #fff2f0;
@@ -110,6 +112,8 @@ import ReleaseNotesWidget from './components/ReleaseNotesWidget.vue'
   --hint: #88888f;
   --primary: #4080ff;
   --primary-disabled: #55555c;
+  --accent-gold: #e3b341;
+  --accent-green: #3fb950;
   --input-border: #3e3e44;
   --hover-bg: #2c2c32;
   --error-bg: #2a1d1d;

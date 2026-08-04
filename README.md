@@ -49,7 +49,7 @@ curl http://localhost:8020/healthz      # MCP server：{"status":"ok","tool_coun
 
 启动后访问：
 
-- 前端：http://localhost:5173
+- 前端：http://localhost:5173（端口可由 `.env` 的 `VITE_PORT` 配置）
 - 后端 API / Swagger 文档：http://localhost:8010/docs
 - MCP Server（LLM 连）：http://localhost:8020/mcp （Streamable HTTP）
 
@@ -82,7 +82,7 @@ npm install
 npm run dev                 # http://localhost:5173 ，/api 默认代理到 http://localhost:8010
 ```
 
-本地裸跑前后端时，可在 `frontend/vite.config.ts` 中把代理目标改为 `http://127.0.0.1:8010`（或设环境变量 `VITE_BACKEND_TARGET`）。
+本地裸跑前后端时，前端 dev server 的端口、后端代理目标、host 白名单均可通过环境变量配置（见 `.env` 的 `VITE_PORT` / `VITE_BACKEND_TARGET` / `VITE_ALLOWED_HOSTS`）：容器内默认端口 5173、代理 `http://backend:8010`，裸跑时把代理改 `http://127.0.0.1:8010`。
 
 ### MCP Server（可选，LLM 接入）
 

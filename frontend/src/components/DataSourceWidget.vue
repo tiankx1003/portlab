@@ -245,12 +245,12 @@ async function clearToken() {
   color: var(--text);
   background: var(--hover-bg);
 }
-/* 开关开启时图标高亮（primary），关闭时弱化（text-secondary）一眼可辨 */
+/* 开关开启时钥匙图标转金色（accent-gold）一眼可辨数据源已切到 Tushare；关闭时弱化（text-secondary） */
 .datasource-btn.active {
-  color: var(--primary);
+  color: var(--accent-gold);
 }
 .datasource-btn.active:hover {
-  color: var(--primary);
+  color: var(--accent-gold);
 }
 .datasource-icon {
   width: 20px;
