@@ -31,6 +31,7 @@ from .api import (
     recent,
     release_note,
     roadmap,
+    signal_board,
     symbols,
     valuation,
 )
@@ -322,6 +323,35 @@ def _ensure_pcf_tables() -> None:
         logger.warning("启动自愈（PCF/份额表）失败: %s", e)
 
 
+def _ensure_signal_board_tables() -> None:
+    """启动自愈：估值与信号看板（032）四表。
+
+    raw_bond_yield_daily（国债）/ raw_index_daily（指数点位）/ raw_macro_indicator（宏观）/
+    raw_margin_balance（融资融券）。CREATE TABLE IF NOT EXISTS 建表（幂等）；
+    覆盖未跑 init/15 或 migrations/016 的裸机场景。
+    """
+    try:
+        from .database import Base, engine
+        from .models.signal_board import (
+            RawBondYieldDaily,
+            RawIndexDaily,
+            RawMacroIndicator,
+            RawMarginBalance,
+        )
+
+        Base.metadata.create_all(
+            engine,
+            tables=[
+                RawBondYieldDaily.__table__,
+                RawIndexDaily.__table__,
+                RawMacroIndicator.__table__,
+                RawMarginBalance.__table__,
+            ],
+        )
+    except Exception as e:  # noqa: BLE001 - 自愈失败不阻断启动
+        logger.warning("启动自愈（信号看板表）失败: %s", e)
+
+
 def _seed_index_registry(db) -> None:
     """index_registry 为空时预置 12 行（幂等）。与 init/12 同源。"""
     from sqlalchemy import func, select
@@ -396,6 +426,7 @@ async def lifespan(app: FastAPI):
     _ensure_portfolio_tables()
     _ensure_valuation_tables()
     _ensure_pcf_tables()
+    _ensure_signal_board_tables()
     # 启动时后台预热 A 股标的目录，使名称解析（图表标题）稳定可用
     threading.Thread(target=symbol_catalog.warmup, daemon=True).start()
     yield
@@ -440,6 +471,7 @@ app.include_router(market.router, prefix="/api/market", tags=["market"])  # /api
 app.include_router(roadmap.router, prefix="/api/roadmap", tags=["roadmap"])  # /api/roadmap
 app.include_router(drawboard.router, prefix="/api/drawboard", tags=["drawboard"])
 app.include_router(valuation.router, prefix="/api/valuation", tags=["valuation"])  # /api/valuation
+app.include_router(signal_board.router, prefix="/api/signal-board", tags=["signal-board"])  # /api/signal-board
 app.include_router(etf_flow.router, prefix="/api/etf-flow", tags=["etf-flow"])  # /api/etf-flow
 app.include_router(pcf_pressure.router, prefix="/api/pcf-pressure", tags=["pcf-pressure"])
 app.include_router(event_dashboard.router, prefix="/api/event", tags=["event"])  # /api/event
