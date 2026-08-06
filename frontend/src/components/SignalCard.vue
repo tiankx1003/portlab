@@ -1,30 +1,32 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { Light, SignalItem } from '../api'
+import LightIcon from './LightIcon.vue'
+import { theme } from '../composables/useTheme'
 
 const props = defineProps<{ item: SignalItem; clickable?: boolean }>()
 const emit = defineEmits<{ click: [] }>()
 
-const lightColor: Record<Light, string> = {
-  green: '#3ba272',
-  yellow: '#faad14',
-  red: '#ee6666',
-  grey: '#909399',
-}
+const lightColor = computed(() => {
+  const dark = theme.value === 'dark'
+  return {
+    green: dark ? '#3fb950' : '#3ba272',
+    yellow: dark ? '#d29922' : '#faad14',
+    red: dark ? '#f85149' : '#ee6666',
+    grey: dark ? '#6e7681' : '#909399',
+  } as Record<Light, string>
+})
 
-// 带 35% 透明度的同色，用于阴影
-const lightShadow: Record<Light, string> = {
-  green: 'rgba(59,162,114,0.35)',
-  yellow: 'rgba(250,173,20,0.35)',
-  red: 'rgba(238,102,102,0.35)',
-  grey: 'rgba(144,147,153,0.30)',
-}
-
-const lightLabel: Record<Light, string> = {
-  green: '🟢',
-  yellow: '🟡',
-  red: '🔴',
-  grey: '⚪',
-}
+const lightShadow = computed(() => {
+  const dark = theme.value === 'dark'
+  const a = dark ? 0.5 : 0.35  // 暗色下阴影透明度加大才可见
+  return {
+    green: `rgba(63,185,80,${a})`,
+    yellow: `rgba(210,153,34,${a})`,
+    red: `rgba(248,81,73,${a})`,
+    grey: `rgba(110,118,129,${dark ? 0.45 : 0.30})`,
+  } as Record<Light, string>
+})
 </script>
 
 <template>
@@ -41,7 +43,7 @@ const lightLabel: Record<Light, string> = {
     <div class="content">
       <div class="label">
         {{ props.item.label }}
-        <span class="dot">{{ lightLabel[props.item.light] }}</span>
+        <LightIcon :light="props.item.light" :size="13" />
       </div>
       <div class="value">{{ props.item.display }}</div>
       <div v-if="props.item.hint" class="hint">{{ props.item.hint }}</div>

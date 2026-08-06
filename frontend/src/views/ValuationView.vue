@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import SignalCard from '../components/SignalCard.vue'
+import LightIcon from '../components/LightIcon.vue'
 import ResonanceSummary from '../components/ResonanceSummary.vue'
 import EquityBondChart from '../components/EquityBondChart.vue'
 import MeanAnchorChart from '../components/MeanAnchorChart.vue'
@@ -46,13 +47,6 @@ const expanded = ref<Record<string, boolean>>({
   layer2: false,
   layer3: false,
 })
-const lightColorMap: Record<string, string> = {
-  green: '#3ba272',
-  yellow: '#faad14',
-  red: '#ee6666',
-  grey: '#909399',
-}
-
 function toggle(key: string) {
   expanded.value[key] = !expanded.value[key]
   // 展开时触发图表 resize（容器从 display:none 恢复后 echarts 需要重算尺寸）
@@ -151,13 +145,13 @@ function layerSummary(lights: Light[]): Light {
   return 'yellow'
 }
 
-function resonance4(l1: Light, l2: Light, l3: Light, l4: Light): { status: string; advice: string } {
+function resonance4(l1: Light, l2: Light, l3: Light, l4: Light): { lights: Light[]; status: string; advice: string } {
   const real = [l1, l2, l3, l4].filter((l) => l !== 'grey')
   if (real.length && real.every((l) => l === 'green'))
-    return { status: '🟢🟢🟢🟢 历史底部区域', advice: '重点关注，分批建仓区' }
+    return { lights: [l1, l2, l3, l4], status: '历史底部区域', advice: '重点关注，分批建仓区' }
   if (real.length && real.every((l) => l === 'red'))
-    return { status: '🔴🔴🔴🔴 历史顶部区域', advice: '警惕，考虑减仓' }
-  return { status: '🟡 不确定', advice: '保持纪律，不做大动作' }
+    return { lights: [l1, l2, l3, l4], status: '历史顶部区域', advice: '警惕，考虑减仓' }
+  return { lights: [l1, l2, l3, l4], status: '不确定', advice: '保持纪律，不做大动作' }
 }
 
 // 四层汇总灯
@@ -186,8 +180,14 @@ const layer3Light = computed<Light>(() => {
 })
 
 const resonanceResult = computed(() => {
-  if (!data.value) return { status: '—', advice: '—' }
+  if (!data.value) return { lights: [] as Light[], status: '—', advice: '—' }
   return resonance4(baseLight.value, layer1Light.value, layer2Light.value, layer3Light.value)
+})
+
+// 整体灯：四层汇总多数表决（复用 layerSummary 逻辑）
+const overallLight = computed<Light>(() => {
+  if (!data.value) return 'grey'
+  return layerSummary([baseLight.value, layer1Light.value, layer2Light.value, layer3Light.value])
 })
 
 const summaryLayers = computed(() => [
@@ -283,6 +283,7 @@ onMounted(async () => {
           <option value="512890">华泰柏瑞红利低波ETF（512890）</option>
           <option value="510880">华泰柏瑞上证红利ETF（510880）</option>
           <option value="513920">华泰柏瑞港股央企红利ETF（513920）</option>
+          <option value="515360">方正富邦沪深300ETF（515360）</option>
         </select>
         <label>窗口</label>
         <select v-model="lookback" @change="load">
@@ -307,11 +308,14 @@ onMounted(async () => {
               v-for="(layer, i) in summaryLayers" :key="i"
               class="resonance-layer"
             >
-              <span class="resonance-dot" :style="{ background: lightColorMap[layer.light] }"></span>
+              <LightIcon :light="layer.light" :size="12" />
               {{ layer.name }}
             </span>
           </div>
-          <span class="resonance-status">{{ resonanceResult.status }}</span>
+          <span class="resonance-status">
+            <LightIcon :light="overallLight" :size="14" />
+            {{ resonanceResult.status }}
+          </span>
           <span class="resonance-advice">{{ resonanceResult.advice }}</span>
         </div>
       </div>
@@ -567,16 +571,13 @@ button.primary:disabled {
   align-items: center;
   gap: 4px;
 }
-.resonance-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  display: inline-block;
-}
 .resonance-status {
   font-size: 16px;
   font-weight: 700;
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }
 .resonance-advice {
   font-size: 12px;
