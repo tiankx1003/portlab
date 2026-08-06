@@ -129,7 +129,7 @@ def fetch_macro(indicator: str, start: date, end: date) -> list[MacroBar]:
 def fetch_margin(start: date, end: date) -> list[dict]:
     """拉取 [start, end] 区间融资融券余额（交易所级汇总，按 trade_date 去重留最新）。
 
-    返回 list[dict]：{trade_date, rzye, rqye}。
+    返回 list[dict]：{trade_date, rzye, rzmre, rqye, rqmcl, rzrqye}。
     """
     try:
         pro = _get_pro()
@@ -146,7 +146,11 @@ def fetch_margin(start: date, end: date) -> list[dict]:
     if df is None or df.empty or "trade_date" not in df.columns:
         return []
     # 按 trade_date 聚合（多交易所取和），去重留最新
-    df = df.groupby("trade_date", as_index=False).agg({"rzye": "sum", "rqye": "sum"})
+    agg_cols = {"rzye": "sum", "rqye": "sum"}
+    for c in ("rzmre", "rqmcl", "rzrqye"):
+        if c in df.columns:
+            agg_cols[c] = "sum"
+    df = df.groupby("trade_date", as_index=False).agg(agg_cols)
     df = df.sort_values("trade_date")
     rows: list[dict] = []
     for _, row in df.iterrows():
@@ -154,25 +158,56 @@ def fetch_margin(start: date, end: date) -> list[dict]:
             {
                 "trade_date": _yyyymmdd_to_date(row["trade_date"]),
                 "rzye": _to_float(row.get("rzye")),
+                "rzmre": _to_float(row.get("rzmre")),
                 "rqye": _to_float(row.get("rqye")),
+                "rqmcl": _to_float(row.get("rqmcl")),
+                "rzrqye": _to_float(row.get("rzrqye")),
                 "source": "tushare",
             }
         )
     return rows
 
 
-def fetch_fund_issue(months: list[str]) -> dict[str, float]:
-    """按月聚合基金发行规模（股基 + 偏股混合）。
+def fetch_northbound(start: date, end: date) -> list[MacroBar]:
+    """拉取 [start, end] 区间北向资金每日净流入（``moneyflow_hsgt.north_money``，万元）。
 
-    months: ["202601", "202602", ...]（YYYYMM）。
-    返回 {month: issue_size_亿元}。需 120 积分（fund_basic 低门槛）。
+    封装为 MacroBar（indicator='north_money'），复用 ``raw_macro_indicator`` generic 表落库。
     """
     try:
         pro = _get_pro()
     except FetchError:
         raise
 
-    result: dict[str, float] = {m: 0.0 for m in months}
+    sd = start.strftime("%Y%m%d")
+    ed = end.strftime("%Y%m%d")
+    try:
+        _throttle()
+        df = pro.moneyflow_hsgt(start_date=sd, end_date=ed)
+    except Exception as e:  # noqa: BLE001
+        _check_permission(e, "北向资金")
+    if df is None or df.empty or "trade_date" not in df.columns or "north_money" not in df.columns:
+        return []
+    df = df.sort_values("trade_date")
+    bars: list[MacroBar] = []
+    for _, row in df.iterrows():
+        v = _to_float(row["north_money"])
+        if v is not None:
+            bars.append(MacroBar("north_money", _yyyymmdd_to_date(row["trade_date"]), v, "tushare"))
+    return bars
+
+
+def fetch_fund_issue(start: date, end: date) -> list[MacroBar]:
+    """按月聚合基金发行规模（股基 + 偏股混合），封装为 MacroBar 落库。
+
+    indicator='fund_issue'，ref_date 取月初，value 为发行规模（亿元）。
+    复用 ``raw_macro_indicator`` generic 表，无需新建表。需 120 积分。
+    """
+    try:
+        pro = _get_pro()
+    except FetchError:
+        raise
+
+    bars: list[MacroBar] = []
     try:
         _throttle()
         # fund_basic：market="O"（场外）覆盖最全；若无 issue_size 列则回退全量
@@ -181,26 +216,28 @@ def fetch_fund_issue(months: list[str]) -> dict[str, float]:
             _throttle()
             df = pro.fund_basic()
         if df is None or df.empty or "found_date" not in df.columns or "issue_size" not in df.columns:
-            return result
+            return bars
         # 筛股基/偏股混合
         if "fund_type" in df.columns:
             df = df[df["fund_type"].isin(["股票型", "偏股混合型"])]
         if df.empty:
-            return result
+            return bars
         # found_date → YYYYMM，按月聚合 issue_size
         df = df.dropna(subset=["found_date", "issue_size"])
         if df.empty:
-            return result
+            return bars
         df = df.copy()
         df["month"] = df["found_date"].astype(str).str[:6]
         df["issue_size"] = df["issue_size"].astype(float)
         monthly = df.groupby("month")["issue_size"].sum()
-        for m in months:
-            if m in monthly.index:
-                result[m] = round(float(monthly[m]), 2)
+        for m, v in monthly.items():
+            d = _month_to_date(m)
+            if d < start or d > end:
+                continue
+            bars.append(MacroBar("fund_issue", d, round(float(v), 2), "tushare"))
     except Exception as e:  # noqa: BLE001
         _check_permission(e, "基金发行规模")
-    return result
+    return bars
 
 
 # ---- 工具 ----

@@ -23,8 +23,8 @@ router = APIRouter()
 
 @router.get("/target", response_model=ApiResponse)
 def target(
-    symbol: str = Query("000300", min_length=1, max_length=16),
-    lookback: str = Query("5y"),
+    symbol: str = Query("512890", min_length=1, max_length=16),
+    lookback: str = Query("3y"),
     db: Session = Depends(get_db),
 ) -> ApiResponse:
     """第一层：单标的信号 + PE 通道 + 股债比价。"""
@@ -33,7 +33,7 @@ def target(
 
 @router.get("/market", response_model=ApiResponse)
 def market(
-    lookback: str = Query("5y"),
+    lookback: str = Query("3y"),
     db: Session = Depends(get_db),
 ) -> ApiResponse:
     """第二层：大类资产估值。"""
@@ -42,17 +42,18 @@ def market(
 
 @router.get("/macro", response_model=ApiResponse)
 def macro(
-    lookback: str = Query("5y"),
+    symbol: str = Query("512890", min_length=1, max_length=16),
+    lookback: str = Query("3y"),
     db: Session = Depends(get_db),
 ) -> ApiResponse:
     """第三层：资金/宏观（Tushare）。"""
-    return ApiResponse.ok(data=build_capital_macro_signals(db, lookback))
+    return ApiResponse.ok(data=build_capital_macro_signals(db, symbol, lookback))
 
 
 @router.get("/resonance", response_model=ApiResponse)
 def resonance(
-    symbol: str = Query("000300", min_length=1, max_length=16),
-    lookback: str = Query("5y"),
+    symbol: str = Query("512890", min_length=1, max_length=16),
+    lookback: str = Query("3y"),
     db: Session = Depends(get_db),
 ) -> ApiResponse:
     """三层共振汇总（含三层明细）。"""

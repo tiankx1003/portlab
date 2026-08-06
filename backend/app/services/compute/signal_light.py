@@ -98,6 +98,20 @@ def light_fund_issue(scale_percentile: float | None) -> Light:
     return "red"
 
 
+def light_commodity(pct_change: float | None) -> Light:
+    """大宗商品近期涨跌幅（%，>0=上行利好周期/红利成分股）。None → grey。
+
+    >5% 🟢（上行，利好成分股利润）/ -5%~5% 🟡 / <-5% 🔴（下行，利润承压）。
+    """
+    if pct_change is None:
+        return "grey"
+    if pct_change >= 5:
+        return "green"
+    if pct_change <= -5:
+        return "red"
+    return "yellow"
+
+
 def light_macro(indicator: str, value: float | None) -> Light:
     """宏观指标（各口径不同）。None → grey。
 

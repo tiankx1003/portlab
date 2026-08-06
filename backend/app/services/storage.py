@@ -10,12 +10,14 @@ from ..models.etf_share import RawEtfShareDaily
 from ..models.raw import RawPriceDaily
 from ..models.signal_board import (
     RawBondYieldDaily,
+    RawCommodityDaily,
     RawIndexDaily,
     RawMacroIndicator,
     RawMarginBalance,
 )
 from ..models.valuation import RawIndexValuationDaily
 from .fetcher import PriceBar
+from .fetcher.commodity_fetcher import CommodityBar
 from .fetcher.signal_fetcher import BondBar, IndexBar
 from .fetcher.valuation_fetcher import ValuationBar
 
@@ -200,29 +202,58 @@ def upsert_macro(db: Session, bars: list) -> int:
 def upsert_margin(db: Session, rows: list[dict]) -> int:
     """融资融券余额写入 ``raw_margin_balance``（UPSERT 幂等）。
 
-    主键 ``(trade_date)`` 冲突时更新 rzye/rqye/source。返回写入条数。
-    rows 元素：{"trade_date", "rzye", "rqye", "source"}。
+    主键 ``(trade_date)`` 冲突时更新 rzye/rzmre/rqye/rqmcl/rzrqye/source。
     """
     if not rows:
         return 0
     from decimal import Decimal  # noqa: PLC0415
+
+    def _d(v):
+        return Decimal(str(v)) if v is not None else None
 
     norm = []
     for r in rows:
         norm.append(
             {
                 "trade_date": r["trade_date"],
-                "rzye": Decimal(str(r["rzye"])) if r.get("rzye") is not None else None,
-                "rqye": Decimal(str(r["rqye"])) if r.get("rqye") is not None else None,
+                "rzye": _d(r.get("rzye")),
+                "rzmre": _d(r.get("rzmre")),
+                "rqye": _d(r.get("rqye")),
+                "rqmcl": _d(r.get("rqmcl")),
+                "rzrqye": _d(r.get("rzrqye")),
                 "source": r.get("source", "tushare"),
             }
         )
     stmt = mysql_insert(RawMarginBalance).values(norm)
     stmt = stmt.on_duplicate_key_update(
         rzye=stmt.inserted.rzye,
+        rzmre=stmt.inserted.rzmre,
         rqye=stmt.inserted.rqye,
+        rqmcl=stmt.inserted.rqmcl,
+        rzrqye=stmt.inserted.rzrqye,
         source=stmt.inserted.source,
     )
     db.execute(stmt)
     db.commit()
     return len(norm)
+
+
+def upsert_commodity(db: Session, bars: list[CommodityBar]) -> int:
+    """大宗商品日线写入 ``raw_commodity_daily``（UPSERT 幂等）。
+
+    主键 ``(symbol, trade_date)`` 冲突时更新 close/source。
+    """
+    if not bars:
+        return 0
+    rows = [
+        {"symbol": b.symbol, "trade_date": b.trade_date, "close": b.close, "source": b.source}
+        for b in bars
+    ]
+    stmt = mysql_insert(RawCommodityDaily).values(rows)
+    stmt = stmt.on_duplicate_key_update(
+        close=stmt.inserted.close,
+        source=stmt.inserted.source,
+    )
+    db.execute(stmt)
+    db.commit()
+    return len(rows)

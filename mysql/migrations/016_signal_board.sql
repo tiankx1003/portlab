@@ -37,8 +37,27 @@ CREATE TABLE IF NOT EXISTS raw_macro_indicator (
 CREATE TABLE IF NOT EXISTS raw_margin_balance (
     trade_date  DATE          NOT NULL COMMENT '交易日',
     rzye        DECIMAL(16,2) NULL     COMMENT '融资余额(元)',
+    rzmre       DECIMAL(16,2) NULL     COMMENT '融资买入额(元)',
     rqye        DECIMAL(16,2) NULL     COMMENT '融券余额(元)',
+    rqmcl       DECIMAL(16,2) NULL     COMMENT '融券卖出量(股)',
+    rzrqye      DECIMAL(16,2) NULL     COMMENT '融资融券余额(元)',
     source      VARCHAR(16)   NOT NULL DEFAULT 'tushare' COMMENT '数据源',
     updated_at  TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (trade_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='融资融券余额(032)';
+
+-- 已部署库（表已存在但缺列）补列；列已存在则报错可忽略
+ALTER TABLE raw_margin_balance ADD COLUMN rzmre  DECIMAL(16,2) NULL COMMENT '融资买入额(元)' AFTER rzye;
+ALTER TABLE raw_margin_balance ADD COLUMN rqmcl  DECIMAL(16,2) NULL COMMENT '融券卖出量(股)' AFTER rqye;
+ALTER TABLE raw_margin_balance ADD COLUMN rzrqye DECIMAL(16,2) NULL COMMENT '融资融券余额(元)' AFTER rqmcl;
+
+-- 大宗商品日线（期货主力连续 + BDI 指数）
+CREATE TABLE IF NOT EXISTS raw_commodity_daily (
+    symbol      VARCHAR(32)   NOT NULL COMMENT '品种代码(JM0焦煤/CU0沪铜/RB0螺纹钢/BDI运价指数)',
+    trade_date  DATE          NOT NULL COMMENT '交易日',
+    close       DECIMAL(12,4) NULL     COMMENT '收盘价/指数',
+    source      VARCHAR(32)   NOT NULL DEFAULT 'akshare' COMMENT '数据源',
+    updated_at  TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (symbol, trade_date),
+    KEY idx_symbol_date (symbol, trade_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='大宗商品日线(032)';

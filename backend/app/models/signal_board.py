@@ -73,15 +73,37 @@ class RawMacroIndicator(Base):
 
 
 class RawMarginBalance(Base):
-    """融资融券余额（交易所级汇总，Tushare）。"""
+    """融资融券余额（交易所级汇总，Tushare margin doc_id=58）。"""
 
     __tablename__ = "raw_margin_balance"
 
     trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
     rzye: Mapped[Decimal | None] = mapped_column(Numeric(16, 2), nullable=True)
+    rzmre: Mapped[Decimal | None] = mapped_column(Numeric(16, 2), nullable=True)
     rqye: Mapped[Decimal | None] = mapped_column(Numeric(16, 2), nullable=True)
+    rqmcl: Mapped[Decimal | None] = mapped_column(Numeric(16, 2), nullable=True)
+    rzrqye: Mapped[Decimal | None] = mapped_column(Numeric(16, 2), nullable=True)
     source: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default=text("'tushare'")
+    )
+    updated_at: Mapped[date | None] = mapped_column(
+        TIMESTAMP,
+        nullable=True,
+        server_default=text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+    )
+
+
+class RawCommodityDaily(Base):
+    """大宗商品日线（期货主力连续 + BDI 指数）。"""
+
+    __tablename__ = "raw_commodity_daily"
+    __table_args__ = (Index("idx_symbol_date", "symbol", "trade_date"),)
+
+    symbol: Mapped[str] = mapped_column(String(32), primary_key=True)
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    close: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
+    source: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=text("'akshare'")
     )
     updated_at: Mapped[date | None] = mapped_column(
         TIMESTAMP,

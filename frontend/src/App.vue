@@ -26,7 +26,6 @@ import ReleaseNotesWidget from './components/ReleaseNotesWidget.vue'
         <RouterLink to="/grid">网格交易</RouterLink>
         <RouterLink to="/portfolio">组合回测</RouterLink>
         <RouterLink to="/arena">策略擂台</RouterLink>
-        <RouterLink to="/etf-flow">ETF 流向</RouterLink>
         <RouterLink to="/valuation">估值</RouterLink>
         <RouterLink to="/event">事件看板</RouterLink>
       </nav>
@@ -198,7 +197,7 @@ body {
   gap: 12px;
 }
 .content {
-  padding: 24px 32px;
+  padding: 14px 32px;
   max-width: 1600px;
   margin: 0 auto;
 }

@@ -32,6 +32,7 @@ class TargetSignalsData(BaseModel):
     symbol: str
     name_cn: str
     resolved_index: str | None = None
+    index_name: str | None = None
     as_of: str | None = None
     metrics: list[SignalItem] = []
     layer_light: Light = "grey"
@@ -49,6 +50,7 @@ class MarketSignalsData(BaseModel):
     mean_anchor_chart: ChartSeries | None = None
     equity_bond_chart: ChartSeries | None = None
     ratio_chart: ChartSeries | None = None
+    commodity_chart: ChartSeries | None = None
     warning: str | None = None
 
 
@@ -58,6 +60,10 @@ class CapitalMacroSignalsData(BaseModel):
     as_of: str | None = None
     metrics: list[SignalItem] = []
     layer_light: Light = "grey"
+    macro_chart: ChartSeries | None = None
+    margin_chart: ChartSeries | None = None
+    etf_share_chart: ChartSeries | None = None
+    northbound_chart: ChartSeries | None = None
     warning: str | None = None
 
 

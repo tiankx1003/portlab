@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS index_registry (
     PRIMARY KEY (index_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='指数注册表(024)';
 
--- 预置 12 行：7 supported=1（5 lg + 中证2000/科创50 csindex），5 supported=0
+-- 预置 16 行：11 supported=1（5 lg + 中证2000/科创50 + 4 红利类 csindex），5 supported=0
 INSERT INTO index_registry
     (index_code, name_cn, lg_name, source_type, supported, note, sort_order)
 VALUES
@@ -42,5 +42,10 @@ VALUES
     ('000001','上证指数', NULL,       'none',    0, 'akshare 无该指数的指数级 PE/PB（lg 无该宽基，csindex 不覆盖上交所发布指数）', 9),
     ('399001','深证成指', NULL,       'none',    0, 'akshare 无该指数的指数级 PE/PB（csindex 不覆盖深交所发布指数）', 10),
     ('399006','创业板指', NULL,       'none',    0, 'akshare 无该指数的指数级 PE/PB（lg 仅有创业板50，csindex 不覆盖国证/深交所指数）', 11),
-    ('886037','微盘',     NULL,       'none',    0, 'akshare 双源皆无微盘股指数级 PE/PB 数据', 12)
+    ('886037','微盘',     NULL,       'none',    0, 'akshare 双源皆无微盘股指数级 PE/PB 数据', 12),
+    -- 红利类（032 补充注册）：csindex hist 有完整 PE 历史（2018 起）+ 股息率当日快照；PB 无数据源
+    ('930955','中证红利低波动100', NULL, 'csindex', 1, NULL, 13),
+    ('H30269','中证红利低波动',    NULL, 'csindex', 1, NULL, 14),
+    ('000922','中证红利',          NULL, 'csindex', 1, NULL, 15),
+    ('000015','上证红利',          NULL, 'csindex', 1, NULL, 16)
 ON DUPLICATE KEY UPDATE name_cn = VALUES(name_cn);

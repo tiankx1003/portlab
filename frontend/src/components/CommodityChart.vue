@@ -10,6 +10,19 @@ const props = defineProps<{ data: ChartSeries | null }>()
 const el = ref<HTMLDivElement>()
 let chart: echarts.ECharts | null = null
 
+const COLORS: Record<string, string> = {
+  JM0: '#5470c6', // 焦煤（蓝）
+  CU0: '#ee6666', // 沪铜（红）
+  RB0: '#3ba272', // 螺纹钢（绿）
+  BDI: '#fac858', // BDI（金）
+}
+const LABELS: Record<string, string> = {
+  JM0: '焦煤',
+  CU0: '沪铜',
+  RB0: '螺纹钢',
+  BDI: 'BDI运价指数',
+}
+
 function themeColors() {
   const dark = theme.value === 'dark'
   return {
@@ -25,76 +38,24 @@ function themeColors() {
 function buildOption(d: ChartSeries): echarts.EChartsOption {
   const tc = themeColors()
   const s = d.series
-  const dates = d.dates
+  const series: echarts.SeriesOption[] = []
+  const legendData: string[] = []
 
-  const series: echarts.SeriesOption[] = [
-    // ±15% 通道填充（lower→upper 的 markArea 不好做连续，用 stacked area 近似）
-    // 用 upper 线 + lower 线 + 上层透明填充实现通道
-    {
-      name: '通道上沿(+15%)',
+  for (const key of ['JM0', 'CU0', 'RB0', 'BDI']) {
+    if (!s[key] || !s[key].some((v) => v != null)) continue
+    legendData.push(LABELS[key])
+    series.push({
+      name: LABELS[key],
       type: 'line',
-      data: s.upper || [],
+      yAxisIndex: 0,
+      data: s[key],
       symbol: 'none',
       smooth: true,
       connectNulls: true,
-      lineStyle: { color: '#ee6666', width: 1, type: 'dashed' as const, opacity: 0.6 },
-      itemStyle: { color: 'transparent' },
-      stack: 'channel',
-      areaStyle: { color: 'rgba(128,128,128,0.12)' },
-    },
-    {
-      name: '通道下沿(-15%)',
-      type: 'line',
-      data: s.lower || [],
-      symbol: 'none',
-      smooth: true,
-      connectNulls: true,
-      lineStyle: { color: '#3ba272', width: 1, type: 'dashed' as const, opacity: 0.6 },
-      itemStyle: { color: 'transparent' },
-      stack: 'channel-hidden',
-      areaStyle: { color: 'transparent' },
-    },
-    {
-      name: '收盘价',
-      type: 'line',
-      data: s.close || [],
-      symbol: 'none',
-      smooth: false,
-      connectNulls: false,
-      itemStyle: { color: tc.axisLabel },
-      lineStyle: { width: 1, opacity: 0.8 },
-    },
-    {
-      name: '5年均线',
-      type: 'line',
-      data: s.ma || [],
-      symbol: 'none',
-      smooth: true,
-      connectNulls: true,
-      itemStyle: { color: '#5470c6' },
-      lineStyle: { width: 2 },
-    },
-    {
-      name: '60日均线',
-      type: 'line',
-      data: s.ma60 || [],
-      symbol: 'none',
-      smooth: true,
-      connectNulls: true,
-      itemStyle: { color: '#91cc75' },
-      lineStyle: { width: 1.2, opacity: 0.7 },
-    },
-    {
-      name: '卖出线(+28%)',
-      type: 'line',
-      data: s.sell_line || [],
-      symbol: 'none',
-      smooth: true,
-      connectNulls: true,
-      itemStyle: { color: '#fac858' },
-      lineStyle: { width: 1.5, type: 'dotted' as const },
-    },
-  ]
+      itemStyle: { color: COLORS[key] },
+      lineStyle: { width: 1.8 },
+    })
+  }
 
   return {
     backgroundColor: 'transparent',
@@ -105,24 +66,20 @@ function buildOption(d: ChartSeries): echarts.EChartsOption {
       borderColor: tc.tooltipBorder,
       borderWidth: 1,
       textStyle: { color: tc.tooltipText },
+      valueFormatter: (v: number | string) => (typeof v === 'number' ? v.toFixed(1) : String(v)),
     },
-    legend: {
-      data: ['收盘价', '5年均线', '60日均线', '卖出线(+28%)', '通道上沿(+15%)', '通道下沿(-15%)'],
-      top: 0,
-      textStyle: { color: tc.axisLabel, fontSize: 11 },
-    },
-    grid: { left: 60, right: 36, top: 40, bottom: 64 },
+    legend: { data: legendData, top: 0, textStyle: { color: tc.axisLabel } },
+    grid: { left: 56, right: 36, top: 40, bottom: 64 },
     xAxis: {
       type: 'category',
-      data: dates,
+      data: d.dates,
       boundaryGap: true,
       axisLine: { lineStyle: { color: tc.axisLine } },
       axisLabel: { color: tc.axisLabel },
     },
     yAxis: {
       type: 'value',
-      name: '点位',
-      scale: true,
+      name: '归一化(首日=100)',
       axisLine: { show: true, lineStyle: { color: tc.axisLine } },
       axisLabel: { color: tc.axisLabel },
       splitLine: { lineStyle: { color: tc.splitLine } },
@@ -166,7 +123,7 @@ watch(theme, render)
 <template>
   <div class="chart-wrap">
     <div ref="el" class="chart"></div>
-    <LegendHint text="灰带=±15%估值通道，蓝线=5年均线（估值锚），绿线=60日均线，橙点线=卖出线(+28%)" />
+    <LegendHint text="归一化至首日=100，便于跨品种对比走势。上行=利好周期/红利成分股" />
   </div>
 </template>
 
@@ -174,7 +131,7 @@ watch(theme, render)
 .chart-wrap {
   position: relative;
   width: 100%;
-  height: 500px;
+  height: 380px;
 }
 .chart {
   width: 100%;

@@ -10,10 +10,6 @@ const props = defineProps<{ data: ChartSeries | null }>()
 const el = ref<HTMLDivElement>()
 let chart: echarts.ECharts | null = null
 
-const COLOR_RATIO = '#ee6666' // 比价主曲线（红）
-const COLOR_MEAN = '#909399' // 滚动均值（灰）
-const COLOR_IDX = '#d4a574' // 指数点位（浅棕，右轴）
-
 function themeColors() {
   const dark = theme.value === 'dark'
   return {
@@ -26,123 +22,147 @@ function themeColors() {
   }
 }
 
-// ±σ 通道线颜色（由近到远渐淡）
-const sigmaColors = ['#fac858', '#91cc75', '#73c0de', '#fc8452', '#9a60b4', '#ea7ccc']
-
 function buildOption(d: ChartSeries): echarts.EChartsOption {
   const tc = themeColors()
   const s = d.series
+  const dates = d.dates
   const hasIdx = s.index_close?.some((v) => v != null) ?? false
 
-  const sigmaLines = [
-    { key: 'p3', label: '+3σ' },
-    { key: 'p2', label: '+2σ' },
-    { key: 'p1', label: '+1σ' },
-    { key: 'n1', label: '-1σ' },
-    { key: 'n2', label: '-2σ' },
-    { key: 'n3', label: '-3σ' },
+  // ECharts 4 子图布局（grid 数组）
+  const grids = [
+    { left: 60, right: hasIdx ? 56 : 36, top: 50, height: '32%' },   // 子图1：比价+指数
+    { left: 60, right: 36, top: '46%', height: '16%' },              // 子图2：收益率对比
+    { left: 60, right: 36, top: '66%', height: '14%' },              // 子图3：分位数
+    { left: 60, right: hasIdx ? 56 : 36, top: '84%', height: '12%' }, // 子图4：PE+指数
   ]
-    .filter((l) => s[l.key])
-    .map((l, i) => {
-      const vals = s[l.key] as (number | null)[]
-      const last = [...vals].reverse().find((v) => v != null)
-      return {
-        yAxis: last,
-        lineStyle: { color: sigmaColors[i], type: 'dashed' as const, opacity: 0.6 },
-        label: { formatter: `${l.label}`, color: sigmaColors[i], fontSize: 10, position: 'insideEndTop' as const },
-      }
-    })
+  const xAxes = grids.map((_, i) => ({
+    type: 'category' as const,
+    gridIndex: i,
+    data: dates,
+    show: i === 3,
+    axisLine: { lineStyle: { color: tc.axisLine } },
+    axisLabel: i === 3 ? { color: tc.axisLabel } : { show: false },
+  }))
 
-  const series: echarts.SeriesOption[] = [
-    {
-      name: '股债比价',
-      type: 'line',
-      yAxisIndex: 0,
-      data: s.ratio || [],
-      symbol: 'none',
-      smooth: true,
-      connectNulls: false,
-      itemStyle: { color: COLOR_RATIO },
-      lineStyle: { width: 2 },
-      markLine: { symbol: 'none', silent: true, data: sigmaLines },
-    },
-    {
-      name: '滚动均值',
-      type: 'line',
-      yAxisIndex: 0,
-      data: s.mean || [],
-      symbol: 'none',
-      smooth: true,
-      connectNulls: true,
-      itemStyle: { color: COLOR_MEAN },
-      lineStyle: { width: 1.5, type: 'dashed' },
-    },
-  ]
+  const series: echarts.SeriesOption[] = []
 
+  // ---- 子图1：股债比价 + ±1σ通道 + 指数(右轴) ----
+  // ±1σ 通道填充（p1 上沿→n1 下沿，用 stacked area 模拟）
+  series.push({
+    name: '比价', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
+    data: s.ratio || [], symbol: 'none', smooth: true, connectNulls: false,
+    itemStyle: { color: '#5470c6' }, lineStyle: { width: 2 },
+    z: 3,
+  })
+  series.push({
+    name: '均值', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
+    data: s.mean || [], symbol: 'none', smooth: true, connectNulls: true,
+    itemStyle: { color: '#91cc75' }, lineStyle: { width: 1, type: 'dashed' as const },
+    z: 2,
+  })
+  // ±1σ 通道：上沿 p1
+  series.push({
+    name: '+1σ', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
+    data: s.p1 || [], symbol: 'none', smooth: true, connectNulls: true,
+    lineStyle: { color: 'transparent' }, areaStyle: { color: 'rgba(84,112,198,0.10)' },
+    stack: 'sigma1-top', z: 1, silent: true,
+  })
+  // -1σ 下沿（从 p1 底部填到 n1）
+  series.push({
+    name: '-1σ', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
+    data: s.n1 || [], symbol: 'none', smooth: true, connectNulls: true,
+    lineStyle: { color: 'transparent' }, areaStyle: { color: 'rgba(255,255,255,0)' },
+    stack: 'sigma1-bot', z: 1, silent: true,
+  })
   if (hasIdx) {
     series.push({
-      name: '指数点位',
-      type: 'line',
-      yAxisIndex: 1,
-      data: s.index_close || [],
-      symbol: 'none',
-      connectNulls: true,
-      itemStyle: { color: COLOR_IDX },
-      lineStyle: { width: 1.5 },
+      name: '指数', type: 'line', xAxisIndex: 0, yAxisIndex: 1,
+      data: s.index_close || [], symbol: 'none', smooth: true, connectNulls: true,
+      itemStyle: { color: '#ee6666' }, lineStyle: { width: 1, opacity: 0.5 },
     })
   }
 
-  const yAxis: Record<string, unknown>[] = [
-    {
-      type: 'value',
-      name: '股债比价',
-      scale: true,
-      axisLine: { show: true, lineStyle: { color: tc.axisLine } },
-      axisLabel: { color: tc.axisLabel },
-      splitLine: { lineStyle: { color: tc.splitLine } },
-      nameTextStyle: { color: tc.axisLabel },
+  // ---- 子图2：股票收益率 vs 国债收益率 ----
+  series.push({
+    name: '盈利收益率', type: 'line', xAxisIndex: 1, yAxisIndex: 2,
+    data: s.stock_yield || [], symbol: 'none', smooth: true, connectNulls: false,
+    itemStyle: { color: '#ee6666' }, lineStyle: { width: 1.2 },
+  })
+  series.push({
+    name: '国债收益率', type: 'line', xAxisIndex: 1, yAxisIndex: 2,
+    data: s.bond_yield || [], symbol: 'none', smooth: true, connectNulls: false,
+    itemStyle: { color: '#fac858' }, lineStyle: { width: 1.2 },
+  })
+
+  // ---- 子图3：历史分位数 ----
+  series.push({
+    name: '比价分位', type: 'line', xAxisIndex: 2, yAxisIndex: 3,
+    data: s.percentile || [], symbol: 'none', smooth: true, connectNulls: false,
+    itemStyle: { color: '#73c0de' }, lineStyle: { width: 1.2 },
+    areaStyle: { color: 'rgba(115,192,222,0.15)' },
+    markLine: {
+      symbol: 'none', silent: true,
+      data: [
+        { yAxis: 80, lineStyle: { color: '#3ba272', type: 'dotted' as const }, label: { formatter: '高性价比80%', color: '#3ba272', fontSize: 9 } },
+        { yAxis: 20, lineStyle: { color: '#ee6666', type: 'dotted' as const }, label: { formatter: '低性价比20%', color: '#ee6666', fontSize: 9 } },
+      ],
     },
-  ]
+  })
+
+  // ---- 子图4：PE + 指数(右轴) ----
+  series.push({
+    name: 'PE-TTM', type: 'line', xAxisIndex: 3, yAxisIndex: 4,
+    data: s.pe_ttm || [], symbol: 'none', smooth: true, connectNulls: false,
+    itemStyle: { color: '#9a60b4' }, lineStyle: { width: 1.2 },
+  })
   if (hasIdx) {
-    yAxis.push({
-      type: 'value',
-      name: '指数点位',
-      scale: true,
-      position: 'right',
-      axisLine: { show: true, lineStyle: { color: tc.axisLine } },
-      axisLabel: { color: tc.axisLabel },
-      splitLine: { show: false },
-      nameTextStyle: { color: tc.axisLabel },
+    series.push({
+      name: '指数', type: 'line', xAxisIndex: 3, yAxisIndex: 5,
+      data: s.index_close || [], symbol: 'none', smooth: true, connectNulls: true,
+      itemStyle: { color: '#ee6666' }, lineStyle: { width: 1, opacity: 0.5 },
     })
   }
+
+  const yAxes = [
+    { gridIndex: 0, type: 'value' as const, name: '比价', scale: true,
+      axisLine: { lineStyle: { color: tc.axisLine } }, axisLabel: { color: tc.axisLabel, fontSize: 10 },
+      splitLine: { lineStyle: { color: tc.splitLine } }, nameTextStyle: { color: tc.axisLabel, fontSize: 10 } },
+    ...(hasIdx ? [{ gridIndex: 0, type: 'value' as const, name: '指数', scale: true, position: 'right' as const,
+      axisLine: { lineStyle: { color: tc.axisLine } }, axisLabel: { color: tc.axisLabel, fontSize: 10 },
+      splitLine: { show: false }, nameTextStyle: { color: tc.axisLabel, fontSize: 10 } }] : []),
+    { gridIndex: 1, type: 'value' as const, name: '收益率%', scale: true,
+      axisLine: { lineStyle: { color: tc.axisLine } }, axisLabel: { color: tc.axisLabel, fontSize: 10 },
+      splitLine: { lineStyle: { color: tc.splitLine } }, nameTextStyle: { color: tc.axisLabel, fontSize: 10 } },
+    { gridIndex: 2, type: 'value' as const, name: '分位%', min: 0, max: 100,
+      axisLine: { lineStyle: { color: tc.axisLine } }, axisLabel: { color: tc.axisLabel, fontSize: 10 },
+      splitLine: { lineStyle: { color: tc.splitLine } }, nameTextStyle: { color: tc.axisLabel, fontSize: 10 } },
+    { gridIndex: 3, type: 'value' as const, name: 'PE', scale: true,
+      axisLine: { lineStyle: { color: tc.axisLine } }, axisLabel: { color: tc.axisLabel, fontSize: 10 },
+      splitLine: { lineStyle: { color: tc.splitLine } }, nameTextStyle: { color: tc.axisLabel, fontSize: 10 } },
+    ...(hasIdx ? [{ gridIndex: 3, type: 'value' as const, name: '指数', scale: true, position: 'right' as const,
+      axisLine: { lineStyle: { color: tc.axisLine } }, axisLabel: { color: tc.axisLabel, fontSize: 10 },
+      splitLine: { show: false }, nameTextStyle: { color: tc.axisLabel, fontSize: 10 } }] : []),
+  ]
 
   return {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',
-      axisPointer: { type: 'cross', lineStyle: { color: tc.axisLine } },
-      backgroundColor: tc.tooltipBg,
-      borderColor: tc.tooltipBorder,
-      borderWidth: 1,
-      textStyle: { color: tc.tooltipText },
+      axisPointer: { type: 'cross', link: [{ xAxisIndex: 'all' }] },
+      backgroundColor: tc.tooltipBg, borderColor: tc.tooltipBorder, borderWidth: 1,
+      textStyle: { color: tc.tooltipText, fontSize: 11 },
     },
+    axisPointer: { link: [{ xAxisIndex: 'all' }] },
     legend: {
-      data: ['股债比价', '滚动均值', ...(hasIdx ? ['指数点位'] : [])],
-      top: 0,
-      textStyle: { color: tc.axisLabel },
+      data: ['比价', '均值', '指数', '盈利收益率', '国债收益率', '比价分位', 'PE-TTM'],
+      top: 0, textStyle: { color: tc.axisLabel, fontSize: 11 },
     },
-    grid: { left: 60, right: hasIdx ? 64 : 36, top: 40, bottom: 64 },
-    xAxis: {
-      type: 'category',
-      data: d.dates,
-      boundaryGap: true,
-      axisLine: { lineStyle: { color: tc.axisLine } },
-      axisLabel: { color: tc.axisLabel },
-    },
-    yAxis: yAxis as NonNullable<echarts.EChartsOption['yAxis']>,
+    grid: grids,
+    xAxis: xAxes as any,
+    yAxis: yAxes as any,
     dataZoom: [
-      { type: 'inside' },
-      { type: 'slider', height: 18, bottom: 24, borderColor: tc.axisLine, textStyle: { color: tc.axisLabel } },
+      { type: 'inside', xAxisIndex: [0, 1, 2, 3] },
+      { type: 'slider', xAxisIndex: [0, 1, 2, 3], height: 16, bottom: 10, borderColor: tc.axisLine, textStyle: { color: tc.axisLabel } },
     ],
     series,
   }
@@ -178,7 +198,7 @@ watch(theme, render)
 <template>
   <div class="chart-wrap">
     <div ref="el" class="chart"></div>
-    <LegendHint text="红线=股债比价，灰虚线=5年滚动均值，彩虚线=±1/±2/±3σ通道。点击图例隐藏曲线" />
+    <LegendHint text="子图1：比价(蓝)+均值(绿虚)+±1σ通道(蓝带)+指数(红,右轴) 子图2：盈利收益率 vs 国债 子图3：分位数(80%高性价比) 子图4：PE-TTM+指数" />
   </div>
 </template>
 
@@ -186,7 +206,7 @@ watch(theme, render)
 .chart-wrap {
   position: relative;
   width: 100%;
-  height: 420px;
+  height: 720px;
 }
 .chart {
   width: 100%;

@@ -27,7 +27,7 @@
 | 布局 | **单页长滚动**，三大模块纵向铺开 + 顶部信号汇总区 |
 | 信号汇总 | **三层各自汇总灯 + 共振判断矩阵**（全绿=底部等） |
 | 数据源策略 | **AkShare 为主 + Tushare 补强资金/宏观**；Tushare 已开通 5000 积分 |
-| 硬伤处理 | 股息率/红利指数 PB **降级显示**（AkShare+Tushare 都无历史序列） |
+| 硬伤处理 | 股息率历史序列/红利指数 PB **降级显示**（AkShare+Tushare 都无历史序列）；红利指数 **PE 可用**（csindex 2018 起），初版漏配 registry 已由 migration/017 补注册 |
 | 股债比价 | **并入本看板**（吸收 027，不再独立实现） |
 | 与现有页 | **重构 `/valuation`**，下线 016 旧代码 |
 
@@ -41,9 +41,9 @@
 
 | 指标 | 主数据源 | Tushare 补强 | 实测结论 |
 |------|---------|-------------|---------|
-| PE 分位 | AkShare `stock_index_pe_lg`（lg）/ `stock_zh_index_hist_csindex`（csindex） | — | ✅ 宽基完整序列（2005 起）；红利指数 csindex 有 PE 历史（2020 起） |
-| PB 分位 | AkShare `stock_index_pb_lg`（仅 lg 5 宽基） | — | ⚠️ **仅 5 宽基有 PB 历史**；红利/中证系指数无 PB → 降级灰显 |
-| 股息率 | AkShare `stock_zh_index_value_csindex`（csindex 当日快照） | Tushare `index_dailybasic` **无股息率字段** | ❌ **无历史序列**（仅~20天快照）→ 只显示当前值，标「快照」，不算分位不赋灯 |
+| PE 分位 | AkShare `stock_index_pe_lg`（lg）/ `stock_zh_index_hist_csindex`（csindex） | — | ✅ 宽基完整序列（2005 起）；红利指数（930955/000922/000015）csindex 有「滚动市盈率」完整序列（实测 **2018 起**），fetcher `fetch_csindex` 已支持。⚠️ **须在 `index_registry` 注册（source_type=csindex, supported=1）后才点亮**——初版 032 漏配，导致选 512890/515080/513920/510880 时 PE 走 else 灰显；migration/017 已补注册 3 个红利指数。 |
+| PB 分位 | AkShare `stock_index_pb_lg`（仅 lg 5 宽基） | — | ⚠️ **仅 5 宽基有 PB 历史**；红利/中证系指数无 PB（csindex hist/value 均无 PB 列）→ 降级灰显（硬伤二，数据源真缺，与 PE 灰显原因不同） |
+| 股息率 | AkShare `stock_zh_index_value_csindex`（csindex 当日快照） | Tushare `index_dailybasic` **无股息率字段** | ❌ **无历史序列**（仅~20天快照）→ 只显示当前值，标「快照」，不算分位不赋灯。**注：该快照仅在指数已注册（supported=1）时展示；未注册时连快照值都不显示。** |
 | MA120 偏离 | 本地算（需指数点位） | — | ✅ 复用 024 的 `compute_ma`，需指数点位表 |
 | 当前回撤 | 本地算 | — | ✅ 复用 024 的 `max_drawdown` |
 | 股债比价 | 国债 `bond_zh_us_rate` + 指数 PE | — | ✅ 吸收 027 设计，EP 口径完整 |
@@ -72,14 +72,24 @@
 
 > **积分门槛结论**：5000 积分覆盖全部含 PMI；若降级到 2000 积分则放弃 PMI（或改国家统计局网页）。本任务按 5000 设计。
 
-### ⚠️ 两个 AkShare + Tushare 都无法解决的硬伤（诚实降级）
+### ⚠️ 数据源硬伤 vs 注册缺口（区分两类降级）
+
+**A. 真硬伤（AkShare + Tushare 都无法解决，需第三方源）**
 
 | 硬伤 | 原因 | 处理 |
 |------|------|------|
 | **股息率历史分位** | AkShare 仅~20天快照；Tushare `index_dailybasic` 无股息率字段，`daily_basic` 只到个股级 | 只显示当前值 + 「快照」标注，**不算分位、不赋信号灯** |
-| **红利类指数 PB** | AkShare lg 无红利指数；csindex hist 无 PB 列；Tushare `index_dailybasic` 只覆盖 6 宽基 | 灰显「无数据」，不赋灯 |
+| **红利类指数 PB** | AkShare lg 无红利指数；csindex hist/value 均无 PB 列；Tushare `index_dailybasic` 只覆盖 6 宽基 | 灰显「无数据」，不赋灯 |
 
 > 这两个缺口的彻底解决需引入第三方估值源（理杏仁 API、蛋卷、中证官网 FactSheet），列为本任务开放问题，不在 032 内实现。
+
+**B. 注册缺口（数据源可用，仅未在 `index_registry` 预置——非硬伤）**
+
+| 缺口 | 实际数据源 | 处理 |
+|------|-----------|------|
+| **红利指数 PE 分位**（产品层曾被误灰显） | csindex hist「滚动市盈率」完整序列（930955/000922/000015 实测 2018 起），fetcher `fetch_csindex` 已支持 | ✅ **已修**：migration/017 补注册 3 个红利指数（source_type=csindex, supported=1）。注册后 PE 分位/股债比价点亮，股息率显示快照值。**PB 仍灰**（属 A 类硬伤） |
+
+> 初版 032 的 `_ETF_INDEX_MAP` 把 512890/515080/513920/510880 映射到 930955/000922/000015，但 024 预置的 12 行 registry 未含这 3 个红利指数，导致 `build_target_signals` 走 else 分支，PE/股息率/股债比价被误灰显（与数据源无关，纯注册漏配）。
 
 ---
 
@@ -316,7 +326,7 @@ def build_resonance(layer1, layer2, layer3) -> dict:
 
 **业务规则：**
 - 不产生 task_id、不写持久化 summary（数据看板）——每次请求即查即算即返回，仅原始数据表缓存。
-- `symbol` 支持 ETF 代码（解析到指数）和指数代码直传。ETF→指数映射复用 016 设计的 `resolve_index`（本期硬编码核心映射：512890→930955 等）。
+- `symbol` 支持 ETF 代码（解析到指数）和指数代码直传。ETF→指数映射复用 016 设计的 `resolve_index`（本期硬编码核心映射：512890→930955 等）。⚠️ **注意**：映射目标指数必须在 `index_registry` 中注册（supported=1）才会走估值计算；初版 032 漏配 930955/000922/000015，已由 migration/017 补注册。
 - Tushare 未配置时：`/macro` 返回结构化降级（全 grey + warning），不报错；`/target` `/market` 不受影响（走 AkShare）。
 - **保留 024 的 `/api/valuation/single` `/overlay` `/indices`**（前端图表组件内部调用）。
 - **下线 016 旧端点** `GET /api/valuation`（空路径）+ `services/valuation.py` 的 `get_valuation()` + `_to_legacy`。

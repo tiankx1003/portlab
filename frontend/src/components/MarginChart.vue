@@ -10,6 +10,10 @@ const props = defineProps<{ data: ChartSeries | null }>()
 const el = ref<HTMLDivElement>()
 let chart: echarts.ECharts | null = null
 
+const COLOR_MARGIN = '#ee6666' // 融资余额（红，左轴，面积）
+const COLOR_SHORT = '#fac858' // 融券余额（金，左轴，线）
+const COLOR_INDEX = '#5470c6' // 沪深300（蓝，右轴，虚线）
+
 function themeColors() {
   const dark = theme.value === 'dark'
   return {
@@ -25,76 +29,48 @@ function themeColors() {
 function buildOption(d: ChartSeries): echarts.EChartsOption {
   const tc = themeColors()
   const s = d.series
-  const dates = d.dates
+  const hasIdx = s.hs300?.some((v) => v != null) ?? false
 
   const series: echarts.SeriesOption[] = [
-    // ±15% 通道填充（lower→upper 的 markArea 不好做连续，用 stacked area 近似）
-    // 用 upper 线 + lower 线 + 上层透明填充实现通道
     {
-      name: '通道上沿(+15%)',
+      name: '融资余额',
       type: 'line',
-      data: s.upper || [],
+      yAxisIndex: 0,
+      data: s.rzye || [],
       symbol: 'none',
       smooth: true,
       connectNulls: true,
-      lineStyle: { color: '#ee6666', width: 1, type: 'dashed' as const, opacity: 0.6 },
-      itemStyle: { color: 'transparent' },
-      stack: 'channel',
-      areaStyle: { color: 'rgba(128,128,128,0.12)' },
-    },
-    {
-      name: '通道下沿(-15%)',
-      type: 'line',
-      data: s.lower || [],
-      symbol: 'none',
-      smooth: true,
-      connectNulls: true,
-      lineStyle: { color: '#3ba272', width: 1, type: 'dashed' as const, opacity: 0.6 },
-      itemStyle: { color: 'transparent' },
-      stack: 'channel-hidden',
-      areaStyle: { color: 'transparent' },
-    },
-    {
-      name: '收盘价',
-      type: 'line',
-      data: s.close || [],
-      symbol: 'none',
-      smooth: false,
-      connectNulls: false,
-      itemStyle: { color: tc.axisLabel },
-      lineStyle: { width: 1, opacity: 0.8 },
-    },
-    {
-      name: '5年均线',
-      type: 'line',
-      data: s.ma || [],
-      symbol: 'none',
-      smooth: true,
-      connectNulls: true,
-      itemStyle: { color: '#5470c6' },
+      itemStyle: { color: COLOR_MARGIN },
       lineStyle: { width: 2 },
-    },
-    {
-      name: '60日均线',
-      type: 'line',
-      data: s.ma60 || [],
-      symbol: 'none',
-      smooth: true,
-      connectNulls: true,
-      itemStyle: { color: '#91cc75' },
-      lineStyle: { width: 1.2, opacity: 0.7 },
-    },
-    {
-      name: '卖出线(+28%)',
-      type: 'line',
-      data: s.sell_line || [],
-      symbol: 'none',
-      smooth: true,
-      connectNulls: true,
-      itemStyle: { color: '#fac858' },
-      lineStyle: { width: 1.5, type: 'dotted' as const },
+      areaStyle: { color: 'rgba(238,102,102,0.08)' },
     },
   ]
+  if (s.rqye && s.rqye.some((v) => v != null)) {
+    series.push({
+      name: '融券余额',
+      type: 'line',
+      yAxisIndex: 0,
+      data: s.rqye || [],
+      symbol: 'none',
+      smooth: true,
+      connectNulls: true,
+      itemStyle: { color: COLOR_SHORT },
+      lineStyle: { width: 1.5 },
+    })
+  }
+  if (hasIdx) {
+    series.push({
+      name: '沪深300',
+      type: 'line',
+      yAxisIndex: 1,
+      data: s.hs300 || [],
+      symbol: 'none',
+      smooth: true,
+      connectNulls: true,
+      itemStyle: { color: COLOR_INDEX },
+      lineStyle: { width: 1.5, type: 'dashed' as const },
+    })
+  }
 
   return {
     backgroundColor: 'transparent',
@@ -107,27 +83,43 @@ function buildOption(d: ChartSeries): echarts.EChartsOption {
       textStyle: { color: tc.tooltipText },
     },
     legend: {
-      data: ['收盘价', '5年均线', '60日均线', '卖出线(+28%)', '通道上沿(+15%)', '通道下沿(-15%)'],
+      data: ['融资余额', ...(s.rqye?.some((v) => v != null) ? ['融券余额'] : []), ...(hasIdx ? ['沪深300'] : [])],
       top: 0,
-      textStyle: { color: tc.axisLabel, fontSize: 11 },
+      textStyle: { color: tc.axisLabel },
     },
-    grid: { left: 60, right: 36, top: 40, bottom: 64 },
+    grid: { left: 64, right: hasIdx ? 64 : 36, top: 40, bottom: 64 },
     xAxis: {
       type: 'category',
-      data: dates,
+      data: d.dates,
       boundaryGap: true,
       axisLine: { lineStyle: { color: tc.axisLine } },
       axisLabel: { color: tc.axisLabel },
     },
-    yAxis: {
-      type: 'value',
-      name: '点位',
-      scale: true,
-      axisLine: { show: true, lineStyle: { color: tc.axisLine } },
-      axisLabel: { color: tc.axisLabel },
-      splitLine: { lineStyle: { color: tc.splitLine } },
-      nameTextStyle: { color: tc.axisLabel },
-    },
+    yAxis: [
+      {
+        type: 'value' as const,
+        name: '融资余额(亿)',
+        scale: true,
+        axisLine: { show: true, lineStyle: { color: tc.axisLine } },
+        axisLabel: { color: tc.axisLabel },
+        splitLine: { lineStyle: { color: tc.splitLine } },
+        nameTextStyle: { color: tc.axisLabel },
+      },
+      ...(hasIdx
+        ? [
+            {
+              type: 'value' as const,
+              name: '沪深300',
+              scale: true,
+              position: 'right' as const,
+              axisLine: { show: true, lineStyle: { color: tc.axisLine } },
+              axisLabel: { color: tc.axisLabel },
+              splitLine: { show: false },
+              nameTextStyle: { color: tc.axisLabel },
+            },
+          ]
+        : []),
+    ],
     dataZoom: [
       { type: 'inside' },
       { type: 'slider', height: 18, bottom: 24, borderColor: tc.axisLine, textStyle: { color: tc.axisLabel } },
@@ -166,7 +158,7 @@ watch(theme, render)
 <template>
   <div class="chart-wrap">
     <div ref="el" class="chart"></div>
-    <LegendHint text="灰带=±15%估值通道，蓝线=5年均线（估值锚），绿线=60日均线，橙点线=卖出线(+28%)" />
+    <LegendHint text="红线=融资余额(左轴)，蓝虚线=沪深300(右轴)。看杠杆资金与指数的相关性" />
   </div>
 </template>
 
@@ -174,7 +166,7 @@ watch(theme, render)
 .chart-wrap {
   position: relative;
   width: 100%;
-  height: 500px;
+  height: 420px;
 }
 .chart {
   width: 100%;

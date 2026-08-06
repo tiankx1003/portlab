@@ -10,6 +10,22 @@ const props = defineProps<{ data: ChartSeries | null }>()
 const el = ref<HTMLDivElement>()
 let chart: echarts.ECharts | null = null
 
+const COLORS: Record<string, string> = {
+  pmi: '#5470c6',
+  m1_yoy: '#ee6666',
+  m2_yoy: '#fac858',
+  sf_yoy: '#73c0de',
+  ppi_yoy: '#3ba272',
+}
+
+const LABELS: Record<string, string> = {
+  pmi: 'PMI',
+  m1_yoy: 'M1同比%',
+  m2_yoy: 'M2同比%',
+  sf_yoy: '社融增速%',
+  ppi_yoy: 'PPI同比%',
+}
+
 function themeColors() {
   const dark = theme.value === 'dark'
   return {
@@ -25,76 +41,50 @@ function themeColors() {
 function buildOption(d: ChartSeries): echarts.EChartsOption {
   const tc = themeColors()
   const s = d.series
-  const dates = d.dates
+  const series: echarts.SeriesOption[] = []
+  const legendData: string[] = []
 
-  const series: echarts.SeriesOption[] = [
-    // ±15% 通道填充（lower→upper 的 markArea 不好做连续，用 stacked area 近似）
-    // 用 upper 线 + lower 线 + 上层透明填充实现通道
-    {
-      name: '通道上沿(+15%)',
+  for (const key of ['pmi', 'm1_yoy', 'm2_yoy', 'sf_yoy', 'ppi_yoy']) {
+    if (!s[key] || !s[key].some((v) => v != null)) continue
+    legendData.push(LABELS[key])
+    const isPmi = key === 'pmi'
+    series.push({
+      name: LABELS[key],
       type: 'line',
-      data: s.upper || [],
-      symbol: 'none',
+      yAxisIndex: 0,
+      data: s[key],
+      symbol: 'circle',
+      symbolSize: 4,
       smooth: true,
-      connectNulls: true,
-      lineStyle: { color: '#ee6666', width: 1, type: 'dashed' as const, opacity: 0.6 },
-      itemStyle: { color: 'transparent' },
-      stack: 'channel',
-      areaStyle: { color: 'rgba(128,128,128,0.12)' },
-    },
-    {
-      name: '通道下沿(-15%)',
-      type: 'line',
-      data: s.lower || [],
-      symbol: 'none',
-      smooth: true,
-      connectNulls: true,
-      lineStyle: { color: '#3ba272', width: 1, type: 'dashed' as const, opacity: 0.6 },
-      itemStyle: { color: 'transparent' },
-      stack: 'channel-hidden',
-      areaStyle: { color: 'transparent' },
-    },
-    {
-      name: '收盘价',
-      type: 'line',
-      data: s.close || [],
-      symbol: 'none',
-      smooth: false,
       connectNulls: false,
-      itemStyle: { color: tc.axisLabel },
-      lineStyle: { width: 1, opacity: 0.8 },
-    },
-    {
-      name: '5年均线',
-      type: 'line',
-      data: s.ma || [],
+      itemStyle: { color: COLORS[key] },
+      lineStyle: { width: isPmi ? 2.5 : 1.5 },
+      markLine: isPmi
+        ? {
+            symbol: 'none',
+            silent: true,
+            label: { fontSize: 10, position: 'insideEndTop' as const },
+            data: [
+              {
+                yAxis: 50,
+                lineStyle: { color: '#ee6666', type: 'dashed' as const, opacity: 0.5 },
+                label: { formatter: '荣枯线50', color: '#ee6666' },
+              },
+            ],
+          }
+        : undefined,
+    })
+  }
+
+  // 0 轴参考线（对同比类指标）
+  series[0] && (series[0] = {
+    ...series[0],
+    markLine: {
       symbol: 'none',
-      smooth: true,
-      connectNulls: true,
-      itemStyle: { color: '#5470c6' },
-      lineStyle: { width: 2 },
+      silent: true,
+      data: [{ yAxis: 0, lineStyle: { color: tc.axisLabel, type: 'dotted' as const } }],
     },
-    {
-      name: '60日均线',
-      type: 'line',
-      data: s.ma60 || [],
-      symbol: 'none',
-      smooth: true,
-      connectNulls: true,
-      itemStyle: { color: '#91cc75' },
-      lineStyle: { width: 1.2, opacity: 0.7 },
-    },
-    {
-      name: '卖出线(+28%)',
-      type: 'line',
-      data: s.sell_line || [],
-      symbol: 'none',
-      smooth: true,
-      connectNulls: true,
-      itemStyle: { color: '#fac858' },
-      lineStyle: { width: 1.5, type: 'dotted' as const },
-    },
-  ]
+  })
 
   return {
     backgroundColor: 'transparent',
@@ -106,23 +96,18 @@ function buildOption(d: ChartSeries): echarts.EChartsOption {
       borderWidth: 1,
       textStyle: { color: tc.tooltipText },
     },
-    legend: {
-      data: ['收盘价', '5年均线', '60日均线', '卖出线(+28%)', '通道上沿(+15%)', '通道下沿(-15%)'],
-      top: 0,
-      textStyle: { color: tc.axisLabel, fontSize: 11 },
-    },
+    legend: { data: legendData, top: 0, textStyle: { color: tc.axisLabel } },
     grid: { left: 60, right: 36, top: 40, bottom: 64 },
     xAxis: {
       type: 'category',
-      data: dates,
+      data: d.dates,
       boundaryGap: true,
       axisLine: { lineStyle: { color: tc.axisLine } },
       axisLabel: { color: tc.axisLabel },
     },
     yAxis: {
       type: 'value',
-      name: '点位',
-      scale: true,
+      name: '指标值',
       axisLine: { show: true, lineStyle: { color: tc.axisLine } },
       axisLabel: { color: tc.axisLabel },
       splitLine: { lineStyle: { color: tc.splitLine } },
@@ -166,7 +151,7 @@ watch(theme, render)
 <template>
   <div class="chart-wrap">
     <div ref="el" class="chart"></div>
-    <LegendHint text="灰带=±15%估值通道，蓝线=5年均线（估值锚），绿线=60日均线，橙点线=卖出线(+28%)" />
+    <LegendHint text="PMI 荣枯线 50 为分水岭；M1/M2/社融/PPI 同比看 0 轴上下。点击图例隐藏曲线" />
   </div>
 </template>
 
@@ -174,7 +159,7 @@ watch(theme, render)
 .chart-wrap {
   position: relative;
   width: 100%;
-  height: 500px;
+  height: 420px;
 }
 .chart {
   width: 100%;

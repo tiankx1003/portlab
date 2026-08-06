@@ -754,6 +754,7 @@ export interface TargetSignalsData {
   symbol: string
   name_cn: string
   resolved_index?: string | null
+  index_name?: string | null
   as_of?: string | null
   metrics: SignalItem[]
   layer_light: Light
@@ -769,6 +770,7 @@ export interface MarketSignalsData {
   mean_anchor_chart?: ChartSeries | null
   equity_bond_chart?: ChartSeries | null
   ratio_chart?: ChartSeries | null
+  commodity_chart?: ChartSeries | null
   warning?: string | null
 }
 
@@ -776,6 +778,10 @@ export interface CapitalMacroSignalsData {
   as_of?: string | null
   metrics: SignalItem[]
   layer_light: Light
+  macro_chart?: ChartSeries | null
+  margin_chart?: ChartSeries | null
+  etf_share_chart?: ChartSeries | null
+  northbound_chart?: ChartSeries | null
   warning?: string | null
 }
 

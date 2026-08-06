@@ -129,17 +129,77 @@ def _to_prefixed_symbol(index_code: str) -> str:
     return f"sh{index_code}"
 
 
+def _parse_csindex_df(
+    df: pd.DataFrame, index_code: str, start: date, end: date, index_type: str, source: str,
+) -> list[IndexBar]:
+    """解析 ``stock_zh_index_hist_csindex`` 返回（列名「日期」「收盘」），按区间过滤为 IndexBar。
+
+    ``index_type`` 取 ``price`` / ``total_return``，``source`` 取 ``akshare_csindex``。
+    供价格指数（回退源）与全收益指数共用，消除列名解析重复。
+    """
+    if df is None or df.empty or "日期" not in df.columns or "收盘" not in df.columns:
+        return []
+
+    df = df[["日期", "收盘"]].copy()
+    df["日期"] = pd.to_datetime(df["日期"])
+    df = df.sort_values("日期")
+    bars: list[IndexBar] = []
+    for _, row in df.iterrows():
+        d = row["日期"].date()
+        if d < start or d > end:
+            continue
+        bars.append(
+            IndexBar(
+                index_code=index_code,
+                trade_date=d,
+                close=_to_dec(row["收盘"]),
+                index_type=index_type,
+                source=source,
+            )
+        )
+    return bars
+
+
+def _fetch_index_close_csindex(index_code: str, start: date, end: date) -> list[IndexBar]:
+    """回退源：中证指数公司 ``stock_zh_index_hist_csindex``（对 930xxx 等中证代码通用）。
+
+    ⚠️ 必须显式传 start_date/end_date，否则该接口默认 end_date=20240604 会误判为数据过期。
+    """
+    try:
+        import akshare as ak  # noqa: PLC0415
+
+        df = ak.stock_zh_index_hist_csindex(
+            symbol=index_code,
+            start_date=start.strftime("%Y%m%d"),
+            end_date=end.strftime("%Y%m%d"),
+        )
+    except Exception as e:  # noqa: BLE001
+        raise FetchError(f"指数行情接口异常（csindex 回退 {index_code}）：{e}") from e
+
+    return _parse_csindex_df(df, index_code, start, end, "price", "akshare_csindex")
+
+
 def fetch_index_close(index_code: str, start: date, end: date) -> list[IndexBar]:
-    """拉取 [start, end] 区间价格指数收盘点位（``stock_zh_index_daily``，全量后按区间过滤）。"""
+    """拉取 [start, end] 区间价格指数收盘点位。
+
+    主源 ``stock_zh_index_daily``（交易所日线，覆盖 sh/sz 前缀的交易所指数）。
+    中证指数公司发布的代码（如 930955 红利低波100）交易所日线不收录，返回空 df 且
+    akshare 内部会抛 ``KeyError('date')``，此时回退到 ``stock_zh_index_hist_csindex``
+    （中证官网，对中证代码通用；实测 930955/000300/000016/000922/000905 均可用）。
+    """
     try:
         import akshare as ak  # noqa: PLC0415
 
         df = ak.stock_zh_index_daily(symbol=_to_prefixed_symbol(index_code))
+    except KeyError:
+        # 中证代码（930xxx 等）交易所日线不收录 → akshare 内部 KeyError('date')，走回退源
+        df = None
     except Exception as e:  # noqa: BLE001
         raise FetchError(f"指数行情接口异常（{index_code}）：{e}") from e
 
     if df is None or df.empty or "date" not in df.columns or "close" not in df.columns:
-        return []
+        # 主源空或不收录 → 回退中证官网
+        return _fetch_index_close_csindex(index_code, start, end)
 
     df = df[["date", "close"]].copy()
     df["date"] = pd.to_datetime(df["date"])
@@ -158,6 +218,9 @@ def fetch_index_close(index_code: str, start: date, end: date) -> list[IndexBar]
                 source="akshare_daily",
             )
         )
+    # 主源区间内无数据（如 000922 中证红利交易所日线仅到 2019）→ 回退中证官网
+    if not bars:
+        return _fetch_index_close_csindex(index_code, start, end)
     return bars
 
 
@@ -177,24 +240,4 @@ def fetch_total_return_close(index_code: str, start: date, end: date) -> list[In
     except Exception as e:  # noqa: BLE001
         raise FetchError(f"全收益指数接口异常（{index_code}）：{e}") from e
 
-    if df is None or df.empty or "日期" not in df.columns or "收盘" not in df.columns:
-        return []
-
-    df = df[["日期", "收盘"]].copy()
-    df["日期"] = pd.to_datetime(df["日期"])
-    df = df.sort_values("日期")
-    bars: list[IndexBar] = []
-    for _, row in df.iterrows():
-        d = row["日期"].date()
-        if d < start or d > end:
-            continue
-        bars.append(
-            IndexBar(
-                index_code=index_code,
-                trade_date=d,
-                close=_to_dec(row["收盘"]),
-                index_type="total_return",
-                source="akshare_csindex",
-            )
-        )
-    return bars
+    return _parse_csindex_df(df, index_code, start, end, "total_return", "akshare_csindex")

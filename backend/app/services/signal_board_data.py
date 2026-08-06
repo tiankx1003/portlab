@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from ..models.signal_board import (
     RawBondYieldDaily,
+    RawCommodityDaily,
     RawIndexDaily,
     RawMacroIndicator,
     RawMarginBalance,
@@ -39,9 +40,16 @@ from .compute.signal_light import (
 )
 from .compute.valuation_metrics import percentile_rank
 from .fetcher import FetchError
-from .fetcher.macro_fetcher import fetch_fund_issue, fetch_macro, fetch_margin
+from .fetcher.commodity_fetcher import fetch_commodity, list_commodity_symbols
+from .fetcher.macro_fetcher import fetch_fund_issue, fetch_macro, fetch_margin, fetch_northbound
 from .fetcher.signal_fetcher import fetch_bond_yield, fetch_index_close, fetch_total_return_close
-from .storage import upsert_bond_yield, upsert_index_close, upsert_macro, upsert_margin
+from .storage import (
+    upsert_bond_yield,
+    upsert_commodity,
+    upsert_index_close,
+    upsert_macro,
+    upsert_margin,
+)
 from .valuation_data import ensure_valuation, get_registry, read_series
 
 logger = logging.getLogger(__name__)
@@ -50,15 +58,16 @@ FRONT_TOL = timedelta(days=7)
 BACK_TOL = timedelta(days=3)
 
 # ETF → 跟踪指数映射（本期硬编码核心标的）
-_ETF_INDEX_MAP: dict[str, tuple[str, str]] = {
-    "510300": ("000300", "沪深300"),
-    "510050": ("000016", "上证50"),
-    "510500": ("000905", "中证500"),
-    "510880": ("000015", "上证红利"),
-    "512890": ("930955", "红利低波100"),
-    "515080": ("000922", "中证红利"),
-    "515360": ("000300", "沪深300"),
-    "513920": ("000922", "中证红利"),
+# (index_code, index_name, etf_name)
+_ETF_INDEX_MAP: dict[str, tuple[str, str, str]] = {
+    "510300": ("000300", "沪深300", "华泰柏瑞沪深300ETF"),
+    "510050": ("000016", "上证50", "华夏上证50ETF"),
+    "510500": ("000905", "中证500", "南方中证500ETF"),
+    "510880": ("000015", "上证红利", "华泰柏瑞上证红利ETF"),
+    "512890": ("H30269", "中证红利低波动", "华泰柏瑞红利低波ETF"),
+    "515080": ("000922", "中证红利", "招商中证红利ETF"),
+    "515360": ("000300", "沪深300", "方正富邦沪深300ETF"),
+    "513920": ("000922", "中证红利", "华泰柏瑞港股央企红利ETF"),
 }
 
 _LOOKBACK_DAYS = {"1y": 365, "3y": 1095, "5y": 1825, "10y": 3650}
@@ -70,12 +79,18 @@ def _resolve_window(lookback: str) -> tuple[date, date]:
     return end - timedelta(days=days), end
 
 
-def _resolve_symbol(symbol: str) -> tuple[str, str]:
-    """ETF → 指数代码+名称；指数代码直传（查 registry）。"""
+def _resolve_symbol(symbol: str) -> tuple[str, str, str]:
+    """解析标的 → (index_code, etf_or_symbol_name, index_name)。
+
+    - ETF 代码：返回 (跟踪指数代码, ETF 名称, 指数名称)
+    - 指数代码直传：返回 (指数代码, 指数名称, 指数名称)（两者相同）
+    """
     if symbol in _ETF_INDEX_MAP:
-        return _ETF_INDEX_MAP[symbol]
+        index_code, index_name, etf_name = _ETF_INDEX_MAP[symbol]
+        return index_code, etf_name, index_name
+    # 指数代码直传：查 registry 取名称
     reg_name = {"000300": "沪深300", "000016": "上证50", "000905": "中证500"}.get(symbol, symbol)
-    return symbol, reg_name
+    return symbol, reg_name, reg_name
 
 
 # ---- 数据保障 ----
@@ -196,8 +211,24 @@ def _read_margin(db: Session, start: date, end: date) -> list[tuple[date, float,
     ]
 
 
-def _ensure_macro(db: Session, indicator: str, start: date, end: date) -> str | None:
-    """确保宏观指标 [start, end] 完整。"""
+_MACRO_FETCH_COOLDOWN: dict[str, float] = {}  # indicator → 上次拉取的 monotonic 时间戳
+_COOLDOWN_SECONDS = 3600  # 月频指标 1 小时内不重复拉（Tushare 月频数据有滞后，频繁拉是浪费）
+
+
+def _ensure_macro(
+    db: Session, indicator: str, start: date, end: date, fetch_fn=None,
+) -> str | None:
+    """确保宏观指标 [start, end] 完整。
+
+    ``fetch_fn`` 默认用 ``fetch_macro``（sf/m1m2/ppi/pmi）；
+    北向/基金发行等非 fetch_macro 覆盖的指标，传入对应的 fetch 函数（返回 list[MacroBar]）。
+
+    月频指标有天然滞后（Tushare 月度数据通常月中才更新上月），频繁拉取返回的还是旧数据。
+    故加 1 小时进程级冷却：冷却期内即使判定「需补」也跳过远端拉取（命中本地已有数据）。
+    """
+    import time as _time  # noqa: PLC0415
+
+    fetcher = fetch_fn or fetch_macro
     cnt = db.execute(
         select(func.count()).where(RawMacroIndicator.indicator == indicator)
     ).scalar() or 0
@@ -209,9 +240,19 @@ def _ensure_macro(db: Session, indicator: str, start: date, end: date) -> str | 
         ranges.append((start, end))
     elif max_d and end - max_d > timedelta(days=35):  # 月频容差
         ranges.append((max_d, end))
+
+    if ranges:
+        # 冷却检查：1 小时内拉过的月频指标跳过（数据不会变）
+        now = _time.monotonic()
+        last = _MACRO_FETCH_COOLDOWN.get(indicator, 0)
+        if now - last < _COOLDOWN_SECONDS:
+            ranges = []  # 冷却中，跳过拉取
+        else:
+            _MACRO_FETCH_COOLDOWN[indicator] = now
+
     for s, e in ranges:
         try:
-            bars = fetch_macro(indicator, s, e)
+            bars = fetcher(indicator, s, e) if fetch_fn is None else fetcher(s, e)
             upsert_macro(db, bars)
         except FetchError as ex:
             return str(ex)
@@ -239,6 +280,48 @@ def _ensure_margin(db: Session, start: date, end: date) -> str | None:
     return None
 
 
+def ensure_commodity(db: Session, symbol: str, start: date, end: date) -> str | None:
+    """确保 [start, end] 区间大宗商品完整。"""
+    row = db.execute(
+        select(
+            func.min(RawCommodityDaily.trade_date),
+            func.max(RawCommodityDaily.trade_date),
+            func.count(),
+        ).where(RawCommodityDaily.symbol == symbol)
+    ).one()
+    mn, mx, cnt = row[0], row[1], row[2]
+    ranges: list[tuple[date, date]] = []
+    if cnt == 0:
+        ranges.append((start, end))
+    else:
+        if mn and mn > start + FRONT_TOL:
+            ranges.append((start, mn))
+        if mx and end - mx > BACK_TOL:
+            ranges.append((mx, end))
+    for s, e in ranges:
+        try:
+            bars = fetch_commodity(symbol, s, e)
+            upsert_commodity(db, bars)
+        except FetchError as ex:
+            return str(ex)
+        except Exception as ex:  # noqa: BLE001
+            return str(ex)
+    return None
+
+
+def _read_commodity(db: Session, symbol: str, start: date, end: date) -> list[tuple[date, float]]:
+    rows = db.execute(
+        select(RawCommodityDaily.trade_date, RawCommodityDaily.close)
+        .where(
+            RawCommodityDaily.symbol == symbol,
+            RawCommodityDaily.trade_date >= start,
+            RawCommodityDaily.trade_date <= end,
+        )
+        .order_by(RawCommodityDaily.trade_date)
+    ).all()
+    return [(r.trade_date, float(r.close)) for r in rows if r.close is not None]
+
+
 def _has_tushare_token() -> bool:
     """检查 Tushare token 是否配置（不抛异常）。"""
     try:
@@ -255,7 +338,7 @@ def _has_tushare_token() -> bool:
 
 def build_target_signals(db: Session, symbol: str, lookback: str) -> dict:
     """单标的多维信号。"""
-    index_code, name_cn = _resolve_symbol(symbol)
+    index_code, symbol_name, index_name = _resolve_symbol(symbol)
     reg = get_registry(db, index_code)
     start, end = _resolve_window(lookback)
 
@@ -372,8 +455,9 @@ def build_target_signals(db: Session, symbol: str, lookback: str) -> dict:
     layer = layer_summary(lights)
     return {
         "symbol": symbol,
-        "name_cn": name_cn,
+        "name_cn": symbol_name,
         "resolved_index": index_code,
+        "index_name": index_name,
         "as_of": idx_rows[-1][0].isoformat() if idx_rows else None,
         "metrics": metrics,
         "layer_light": layer,
@@ -388,28 +472,60 @@ def _build_equity_bond_for_target(
     bond_rows: list[tuple[date, float]],
     index_code: str, idx_rows: list[tuple[date, float]],
 ) -> tuple[dict, Light]:
-    """为单标的算股债比价（EP/国债）+ rolling_channel。返回 (chart_data, light)。"""
+    """为单标的算股债比价（EP/国债）+ rolling_channel + 辅助序列。返回 (chart_data, light)。
+
+    输出序列（对齐 notebook MA5Y.ipynb 的 4 子图设计）：
+    - ratio / mean / ±σ 通道（主图）
+    - stock_yield（1/PE×100）、bond_yield（收益率对比图）
+    - percentile（历史分位图）
+    - pe_ttm（PE 图）
+    - index_close（右轴指数）
+    """
     if not pe_dates or not bond_rows:
         return {"dates": [], "series": {}}, "grey"
     bond_map = {d: v for d, v in bond_rows}
+    idx_map = dict(idx_rows) if idx_rows else {}
     dates: list[date] = []
-    ep_vals: list[float | None] = []
+    ratio_vals: list[float | None] = []
+    stock_yield_vals: list[float | None] = []
+    bond_yield_vals: list[float | None] = []
+    pe_raw_vals: list[float | None] = []
+    idx_close_vals: list[float | None] = []
     for i, ds in enumerate(pe_dates):
         d = date.fromisoformat(ds)
         pe = pe_vals[i]
         y = bond_map.get(d)
+        dates.append(d)
+        pe_raw_vals.append(round(pe, 2) if pe else None)
+        idx_close_vals.append(round(idx_map.get(d, 0), 2) if d in idx_map else None)
         if pe and y and y > 0:
-            ep = (1.0 / pe) * 100  # EP%，pe 是倍数
-            dates.append(d)
-            ep_vals.append(round(ep / y, 4))
+            sy = round((1.0 / pe) * 100, 4)  # 盈利收益率%
+            stock_yield_vals.append(sy)
+            bond_yield_vals.append(round(y, 4))
+            ratio_vals.append(round(sy / y, 4))
         else:
-            dates.append(d)
-            ep_vals.append(None)
-    ch = rolling_channel(ep_vals, dates, 5)
-    current_ratio = next((v for v in reversed(ep_vals) if v is not None), None)
+            stock_yield_vals.append(None)
+            bond_yield_vals.append(None)
+            ratio_vals.append(None)
+    ch = rolling_channel(ratio_vals, dates, 5)
+    # 历史分位（rank pct）
+    valid_ratios = [v for v in ratio_vals if v is not None]
+    percentile_vals: list[float | None] = []
+    if valid_ratios:
+        sorted_ratios = sorted(valid_ratios)
+        for v in ratio_vals:
+            if v is None:
+                percentile_vals.append(None)
+            else:
+                below = sum(1 for x in sorted_ratios if x <= v)
+                percentile_vals.append(round(below / len(sorted_ratios) * 100, 1))
+    else:
+        percentile_vals = [None] * len(dates)
+
+    current_ratio = next((v for v in reversed(ratio_vals) if v is not None), None)
     current_mean = next((v for v in reversed(ch["mean"]) if v is not None), None)
-    idx_p2 = next((v for v in reversed(ch["p2"]) if v is not None), None)
     idx_p1 = next((v for v in reversed(ch["p1"]) if v is not None), None)
+    idx_p2 = next((v for v in reversed(ch["p2"]) if v is not None), None)
     idx_n1 = next((v for v in reversed(ch["n1"]) if v is not None), None)
     idx_n2 = next((v for v in reversed(ch["n2"]) if v is not None), None)
     pos = channel_position(current_ratio, current_mean, idx_p1, idx_p2, idx_n1, idx_n2)
@@ -417,11 +533,12 @@ def _build_equity_bond_for_target(
     chart = {
         "dates": [d.isoformat() for d in dates],
         "series": {
-            "ratio": ep_vals, "mean": ch["mean"],
-            "p1": ch["p1"], "p2": ch["p2"], "p3": ch["p3"],
-            "n1": ch["n1"], "n2": ch["n2"], "n3": ch["n3"],
+            "ratio": ratio_vals, "mean": ch["mean"],
+            "p1": ch["p1"], "n1": ch["n1"],  # ±1σ 通道填充用
+            "stock_yield": stock_yield_vals, "bond_yield": bond_yield_vals,
+            "percentile": percentile_vals, "pe_ttm": pe_raw_vals,
             "position": pos,
-            "index_close": [None] * len(dates),  # 单标的层不画右轴指数
+            "index_close": idx_close_vals,
         },
     }
     return chart, light
@@ -495,6 +612,11 @@ def build_market_signals(db: Session, lookback: str) -> dict:
         "light": fund_light, "hint": "冰点=底部信号" if fund_light == "green" else None,
     })
 
+    # 大宗商品（焦煤/沪铜/螺纹钢/BDI），近期涨跌幅信号灯 + 走势图
+    commodity_chart, commodity_metrics = _build_commodity_signals(db, start, end)
+    metrics.extend(commodity_metrics)
+    lights.extend([m["light"] for m in commodity_metrics if m["light"] != "grey"])
+
     layer = layer_summary(lights)
     return {
         "as_of": eb_chart["dates"][-1] if eb_chart.get("dates") else None,
@@ -503,6 +625,7 @@ def build_market_signals(db: Session, lookback: str) -> dict:
         "mean_anchor_chart": anchor_chart if anchor_chart.get("dates") else None,
         "equity_bond_chart": eb_chart if eb_chart.get("dates") else None,
         "ratio_chart": ratio_chart if ratio_chart.get("dates") else None,
+        "commodity_chart": commodity_chart if commodity_chart.get("dates") else None,
         "warning": "; ".join(warnings) if warnings else None,
     }
 
@@ -523,30 +646,47 @@ def _build_mean_anchor(db: Session, index_code: str, name: str, start: date, end
 
     ma_period = int(years * 250)  # ≈ 年交易日数
     ma = compute_ma([(d, Decimal(str(c))) for d, c in all_rows], ma_period)
+    ma60 = compute_ma([(d, Decimal(str(c))) for d, c in all_rows], 60)  # 60 日均线（找卖点）
     # 只展示 [start, end] 区间（均线用 all_rows 全量算，保证预热充分）
     rows = [(d, c) for d, c in all_rows if d >= start]
     dates: list[str] = []
     close_vals: list[float | None] = []
     ma_vals: list[float | None] = []
+    ma60_vals: list[float | None] = []
+    upper_vals: list[float | None] = []  # MA+15%
+    lower_vals: list[float | None] = []  # MA-15%
+    sell_vals: list[float | None] = []  # MA+28% 卖出线
     dev_vals: list[float | None] = []
     last_dev: float | None = None
     for d, c in rows:
         dates.append(d.isoformat())
         close_vals.append(round(c, 2))
         m = ma.get(d)
+        m60 = ma60.get(d)
+        ma60_vals.append(round(float(m60), 2) if m60 else None)
         if m and float(m) > 0:
             mf = float(m)
             ma_vals.append(round(mf, 2))
+            upper_vals.append(round(mf * 1.15, 2))
+            lower_vals.append(round(mf * 0.85, 2))
+            sell_vals.append(round(mf * 1.28, 2))
             dev = round((c - mf) / mf * 100, 2)
             dev_vals.append(dev)
             last_dev = dev
         else:
             ma_vals.append(None)
+            upper_vals.append(None)
+            lower_vals.append(None)
+            sell_vals.append(None)
             dev_vals.append(None)
     light = light_mean_anchor(last_dev)
     chart = {
         "dates": dates,
-        "series": {"close": close_vals, "ma": ma_vals, "deviation": dev_vals},
+        "series": {
+            "close": close_vals, "ma": ma_vals, "ma60": ma60_vals,
+            "upper": upper_vals, "lower": lower_vals, "sell_line": sell_vals,
+            "deviation": dev_vals,
+        },
     }
     metric = [{
         "key": f"anchor_{index_code}", "label": f"{name} 偏离",
@@ -570,25 +710,84 @@ def _build_style_ratio(db: Session, code_a: str, code_b: str, start: date, end: 
     return {"dates": dates, "series": {"ratio": ratio}}, "grey"
 
 
+# 大宗商品名称映射
+_COMMODITY_NAMES = {"JM0": "焦煤", "CU0": "沪铜", "RB0": "螺纹钢", "BDI": "BDI运价指数"}
+
+
+def _build_commodity_signals(db: Session, start: date, end: date) -> tuple[dict, list[dict]]:
+    """大宗商品走势图 + 近 20 日涨跌幅信号灯。返回 (chart, metrics)。"""
+    from .compute.signal_light import light_commodity  # noqa: PLC0415
+
+    all_series: dict[str, list[float | None]] = {}
+    all_dates: set[date] = set()
+    metrics: list[dict] = []
+
+    for sym in ["JM0", "CU0", "RB0", "BDI"]:
+        err = ensure_commodity(db, sym, start, end)
+        if err:
+            metrics.append({
+                "key": f"commodity_{sym}", "label": f"{_COMMODITY_NAMES[sym]} 20日涨跌",
+                "display": "—", "light": "grey", "hint": err[:40],
+            })
+            continue
+        rows = _read_commodity(db, sym, start, end)
+        if not rows:
+            metrics.append({
+                "key": f"commodity_{sym}", "label": f"{_COMMODITY_NAMES[sym]} 20日涨跌",
+                "display": "—", "light": "grey",
+            })
+            continue
+        d_map = {d: v for d, v in rows}
+        all_dates |= set(d_map.keys())
+        all_series[sym] = [None] * 0  # placeholder, 后面按 sorted dates 填充
+        # 算近 20 日涨跌幅
+        recent = rows[-20:]
+        if len(recent) >= 2:
+            pct = round((recent[-1][1] - recent[0][1]) / recent[0][1] * 100, 1)
+        else:
+            pct = None
+        light = light_commodity(pct)
+        metrics.append({
+            "key": f"commodity_{sym}", "label": f"{_COMMODITY_NAMES[sym]} 20日涨跌",
+            "value": pct, "display": f"{pct:+.1f}%" if pct is not None else "—",
+            "light": light,
+            "hint": f"现价 {recent[-1][1]:.1f}" if recent else None,
+        })
+
+    # 组装 chart：按日期对齐，缺失为 None
+    sorted_dates = sorted(all_dates)
+    chart = {"dates": [], "series": {}}
+    for sym in ["JM0", "CU0", "RB0", "BDI"]:
+        rows = _read_commodity(db, sym, start, end)
+        d_map = {d: v for d, v in rows}
+        # 归一化（各品种量级差异大，归一到首日=100 便于同图对比）
+        first_val = next((v for v in d_map.values() if v), None)
+        if first_val:
+            chart["series"][sym] = [
+                round(d_map.get(d, 0) / first_val * 100, 2) if d in d_map else None
+                for d in sorted_dates
+            ]
+        else:
+            chart["series"][sym] = [None] * len(sorted_dates)
+    chart["dates"] = [d.isoformat() for d in sorted_dates]
+    return chart, metrics
+
+
 def _calc_fund_issue_percentile(db: Session, end: date) -> float | None:
-    """基金发行规模当月 vs 近 3 年历史分位。"""
+    """基金发行规模当月 vs 近 3 年历史分位。
+
+    ensure 落库（fund_issue indicator，月频）后读本地算分位，避免每次拉 fund_basic 全量。
+    """
     from .fetcher.macro_fetcher import fetch_fund_issue  # noqa: PLC0415
 
-    months: list[str] = []
-    y, m = end.year, end.month
-    for _ in range(36):
-        months.append(f"{y:04d}{m:02d}")
-        m -= 1
-        if m == 0:
-            m = 12
-            y -= 1
-    months.reverse()
-    monthly = fetch_fund_issue(months)
-    if not any(monthly.values()):
+    start = end - timedelta(days=365 * 3 + 60)
+    # ensure：raw_macro_indicator 中 fund_issue 缺口补齐（月频容差 35 天）
+    _ensure_macro(db, "fund_issue", start, end, fetch_fn=fetch_fund_issue)
+    series = _read_macro(db, "fund_issue", start, end)
+    if not series:
         return None
-    cur_month = months[-1]
-    cur_val = monthly.get(cur_month, 0.0)
-    vals = sorted(v for v in monthly.values() if v > 0)
+    cur_val = series[-1][1]
+    vals = sorted(v for _, v in series if v > 0)
     if not vals:
         return None
     below = sum(1 for v in vals if v <= cur_val)
@@ -598,8 +797,8 @@ def _calc_fund_issue_percentile(db: Session, end: date) -> float | None:
 # ---- 第三层：资金 + 宏观 ----
 
 
-def build_capital_macro_signals(db: Session, lookback: str) -> dict:
-    """资金 + 宏观信号（全 Tushare，token 缺失全降级）。"""
+def build_capital_macro_signals(db: Session, symbol: str, lookback: str) -> dict:
+    """资金 + 宏观信号（全 Tushare，token 缺失全降级）。symbol 用于 ETF 份额变动。"""
     start, end = _resolve_window(lookback)
     metrics: list[dict] = []
     lights: list[Light] = []
@@ -659,35 +858,135 @@ def build_capital_macro_signals(db: Session, lookback: str) -> dict:
                 "display": f"{pct:.0f}%", "light": light,
                 "hint": "<20% 杠杆清洗=底部" if light == "green" else ">80% 过热=顶部" if light == "red" else None,
             })
+            # 融券余额分位（空头集中度；极高可能是见底信号，但阈值与融资相反不直观，暂同口径）
+            rqye_series = [r[2] for r in margin]
+            cur_rqye = rqye_series[-1]
+            rqye_pct = percentile_rank(cur_rqye, rqye_series)
+            rqye_light = light_margin_percentile(rqye_pct)
+            lights.append(rqye_light)
+            metrics.append({
+                "key": "rqye", "label": "融券余额分位", "value": rqye_pct,
+                "display": f"{rqye_pct:.0f}%", "light": rqye_light,
+                "hint": "空头集中度，极高可能是见底信号",
+            })
     except Exception as e:  # noqa: BLE001
         warnings.append(f"融资融券：{e}")
         metrics.append({"key": "margin", "label": "融资余额", "display": "—", "light": "grey"})
+        metrics.append({"key": "rqye", "label": "融券余额", "display": "—", "light": "grey"})
 
-    # 北向 + ETF 份额（复用 017 实时模式，不落库）
+    # 北向资金（ensure 落库 raw_macro_indicator，避免每次实时调 Tushare）
+    northbound_chart: dict = {"dates": [], "series": {}}
     try:
-        from .etf_flow import get_etf_flow  # noqa: PLC0415
-
-        flow = get_etf_flow("510300", start, end)
-        nb = flow.get("signals", {}).get("northbound", {})
-        if nb.get("available") and nb.get("values"):
-            nb_val = nb["values"][-1]
+        _ensure_macro(db, "north_money", start, end, fetch_fn=fetch_northbound)
+        nb_series = _read_macro(db, "north_money", start, end)
+        if nb_series:
+            nb_val = nb_series[-1][1]  # 万元
             lights.append("grey")  # 北向无固定阈值，仅展示
             metrics.append({
                 "key": "northbound", "label": "北向资金", "value": nb_val,
                 "display": f"{nb_val / 10000:.2f}亿", "light": "grey", "hint": "外资态度（2024后总额披露）",
             })
+            northbound_chart = {
+                "dates": [d.isoformat() for d, _ in nb_series],
+                "series": {"north_money": [round(v / 1e4, 2) for _, v in nb_series]},  # 万元→亿元
+            }
     except Exception as e:  # noqa: BLE001
         warnings.append(f"北向：{e}")
 
+    # ETF 份额变动（复用 028 ensure_etf_shares 落库；按标的查询）
+    etf_share_chart: dict = {"dates": [], "series": {}}
+    try:
+        from .etf_share_data import ensure_etf_shares  # noqa: PLC0415
+
+        etf_sym = symbol if symbol.startswith("5") else "510300"
+        err = ensure_etf_shares(db, etf_sym, start, end)
+        if err:
+            warnings.append(f"ETF份额：{err}")
+        else:
+            from ..models.etf_share import RawEtfShareDaily  # noqa: PLC0415
+
+            rows = db.execute(
+                select(RawEtfShareDaily.trade_date, RawEtfShareDaily.fd_share)
+                .where(
+                    RawEtfShareDaily.symbol == etf_sym,
+                    RawEtfShareDaily.trade_date >= start,
+                    RawEtfShareDaily.trade_date <= end,
+                )
+                .order_by(RawEtfShareDaily.trade_date)
+            ).all()
+            if len(rows) >= 2:
+                shares = [float(r.fd_share) for r in rows]
+                dates_list = [r.trade_date for r in rows]
+                # 环比变动（万份）
+                changes = [0.0] + [round(shares[i] - shares[i - 1], 2) for i in range(1, len(shares))]
+                recent_change = changes[-1]
+                # 近 20 日累计变动
+                recent_20 = sum(changes[-20:]) if len(changes) >= 20 else sum(changes)
+                light = "green" if recent_20 > 0 else "red" if recent_20 < 0 else "yellow"
+                lights.append(light)
+                metrics.append({
+                    "key": "etf_share", "label": "ETF份额变动", "value": recent_change,
+                    "display": f"{recent_change / 1e4:+.2f}亿份" if recent_change else "—",
+                    "light": light,
+                    "hint": f"近20日累计 {recent_20 / 1e4:+.1f}亿份",
+                })
+                etf_share_chart = {
+                    "dates": [d.isoformat() for d in dates_list],
+                    "series": {"change": changes},
+                }
+    except Exception as e:  # noqa: BLE001
+        warnings.append(f"ETF份额：{e}")
+
     layer = layer_summary(lights)
-    last_macro_date = None
-    for m in reversed(metrics):
-        if m.get("value") is not None:
-            break
+
+    # ---- 图 1：宏观四指标月度序列（PMI / M1 / M2 / 社融 / PPI）----
+    macro_chart: dict = {"dates": [], "series": {}}
+    try:
+        pmi_s = dict(_read_macro(db, "pmi", start, end))
+        m1_s = dict(_read_macro(db, "m1_yoy", start, end))
+        m2_s = dict(_read_macro(db, "m2_yoy", start, end))
+        sf_s = dict(_read_macro(db, "sf_yoy", start, end))
+        ppi_s = dict(_read_macro(db, "ppi_yoy", start, end))
+        months = sorted(set(pmi_s) | set(m1_s) | set(m2_s) | set(sf_s) | set(ppi_s))
+        macro_chart = {
+            "dates": [d.isoformat() for d in months],
+            "series": {
+                "pmi": [pmi_s.get(d) for d in months],
+                "m1_yoy": [m1_s.get(d) for d in months],
+                "m2_yoy": [m2_s.get(d) for d in months],
+                "sf_yoy": [sf_s.get(d) for d in months],
+                "ppi_yoy": [ppi_s.get(d) for d in months],
+            },
+        }
+    except Exception:  # noqa: BLE001
+        pass
+
+    # ---- 图 2：融资余额 vs 沪深300 ----
+    margin_chart: dict = {"dates": [], "series": {}}
+    try:
+        margin_rows = _read_margin(db, start, end)
+        if margin_rows:
+            idx_rows = _read_index_close(db, "000300", start, end)
+            idx_map = dict(idx_rows)
+            margin_chart = {
+                "dates": [r[0].isoformat() for r in margin_rows],
+                "series": {
+                    "rzye": [round(r[1] / 1e8, 2) for r in margin_rows],  # 融资余额 元→亿元
+                    "rqye": [round(r[2] / 1e8, 2) for r in margin_rows],  # 融券余额 元→亿元
+                    "hs300": [idx_map.get(r[0]) for r in margin_rows],
+                },
+            }
+    except Exception:  # noqa: BLE001
+        pass
+
     return {
         "as_of": end.isoformat(),
         "metrics": metrics,
         "layer_light": layer,
+        "macro_chart": macro_chart if macro_chart["dates"] else None,
+        "margin_chart": margin_chart if margin_chart["dates"] else None,
+        "etf_share_chart": etf_share_chart if etf_share_chart.get("dates") else None,
+        "northbound_chart": northbound_chart if northbound_chart.get("dates") else None,
         "warning": "; ".join(warnings) if warnings else None,
     }
 
@@ -696,10 +995,24 @@ def build_capital_macro_signals(db: Session, lookback: str) -> dict:
 
 
 def build_resonance(db: Session, symbol: str, lookback: str) -> dict:
-    """三层共振汇总。"""
-    t = build_target_signals(db, symbol, lookback)
-    m = build_market_signals(db, lookback)
-    c = build_capital_macro_signals(db, lookback)
+    """三层共振汇总。三层 build 并行执行（各自独立 session，互无依赖）。"""
+    from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
+
+    from ..database import SessionLocal  # noqa: PLC0415
+
+    def _run(builder):
+        """在独立 session 中执行 build 函数，确保线程安全。"""
+        with SessionLocal() as sdb:
+            return builder(sdb)
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        ft = pool.submit(_run, lambda d: build_target_signals(d, symbol, lookback))
+        fm = pool.submit(_run, lambda d: build_market_signals(d, lookback))
+        fc = pool.submit(_run, lambda d: build_capital_macro_signals(d, symbol, lookback))
+        t = ft.result()
+        m = fm.result()
+        c = fc.result()
+
     status, advice = resonance_fn(t["layer_light"], m["layer_light"], c["layer_light"])
     return {
         "layer1": t["layer_light"],
