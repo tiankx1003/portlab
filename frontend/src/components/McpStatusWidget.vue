@@ -170,10 +170,17 @@ function formatTime(iso: string): string {
                 <button
                   class="mcp-copy-mini"
                   type="button"
-                  title="复制地址"
+                  :title="copied === 'url' ? '已复制' : '复制地址'"
                   @click="copy(status.mcp_url, 'url')"
                 >
-                  {{ copied === 'url' ? '✓' : '📋' }}
+                  <!-- 复制前：复制图标 -->
+                  <svg v-if="copied !== 'url'" class="copy-icon" viewBox="0 0 1024 1024" width="14" height="14">
+                    <path d="M864.768 126.976h-573.44c-17.92 0-32.256 14.336-32.256 32.256v98.816H159.744c-17.92 0-32.256 14.336-32.256 32.256v573.44c0 17.92 14.336 31.744 32.256 31.744h573.44c17.92 0 31.744-14.336 31.744-31.744v-99.328h99.84c17.92 0 31.744-14.336 31.744-31.744v-573.44c0.512-17.92-13.824-32.256-31.744-32.256zM701.44 832H192V322.56H701.44v509.44z m131.584-131.584h-67.584V290.304c0-17.92-14.336-32.256-31.744-32.256h-409.6v-66.56h509.44v508.928z" fill="currentColor" />
+                  </svg>
+                  <!-- 复制后：勾选图标 -->
+                  <svg v-else class="copy-icon copy-ok" viewBox="0 0 1024 1024" width="14" height="14">
+                    <path d="M865.28 242.346667a42.709333 42.709333 0 0 1 60.288 60.416L425.685333 802.304a85.333333 85.333333 0 0 1-125.738666-5.546667l-193.664-230.741333a42.666667 42.666667 0 0 1 65.408-54.826667l193.621333 230.741334L865.237333 242.346667z" fill="currentColor" />
+                  </svg>
                 </button>
               </span>
             </div>
@@ -273,7 +280,7 @@ function formatTime(iso: string): string {
   justify-content: center;
 }
 .mcp-panel {
-  width: 460px;
+  width: 750px;
   max-width: calc(100vw - 32px);
   max-height: 80vh;
   display: flex;
@@ -371,12 +378,21 @@ function formatTime(iso: string): string {
   border: none;
   background: transparent;
   cursor: pointer;
-  font-size: 13px;
-  padding: 2px 4px;
+  padding: 4px;
   border-radius: 4px;
+  color: var(--text-tertiary);
+  display: inline-flex;
+  align-items: center;
 }
 .mcp-copy-mini:hover {
   background: var(--hover-bg);
+  color: var(--text-secondary);
+}
+.copy-icon {
+  display: block;
+}
+.copy-ok {
+  color: var(--accent-green);
 }
 .mcp-expand {
   margin-top: 6px;

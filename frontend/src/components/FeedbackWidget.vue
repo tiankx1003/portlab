@@ -185,7 +185,7 @@ function formatTime(iso: string): string {
   justify-content: center;
 }
 .fb-panel {
-  width: 540px;
+  width: 750px;
   max-width: calc(100vw - 32px);
   max-height: 80vh;
   display: flex;
