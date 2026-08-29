@@ -31,6 +31,7 @@ from .api import (
     recent,
     release_note,
     roadmap,
+    signal_board,
     symbols,
     valuation,
 )
@@ -322,8 +323,39 @@ def _ensure_pcf_tables() -> None:
         logger.warning("启动自愈（PCF/份额表）失败: %s", e)
 
 
+def _ensure_signal_board_tables() -> None:
+    """启动自愈：估值与信号看板（032）五表。
+
+    raw_bond_yield_daily（国债）/ raw_index_daily（指数点位）/ raw_macro_indicator（宏观）/
+    raw_margin_balance（融资融券）/ raw_commodity_daily（大宗商品）。
+    CREATE TABLE IF NOT EXISTS 建表（幂等）；覆盖未跑 init/15 或 migrations/016 的裸机场景。
+    """
+    try:
+        from .database import Base, engine
+        from .models.signal_board import (
+            RawBondYieldDaily,
+            RawCommodityDaily,
+            RawIndexDaily,
+            RawMacroIndicator,
+            RawMarginBalance,
+        )
+
+        Base.metadata.create_all(
+            engine,
+            tables=[
+                RawBondYieldDaily.__table__,
+                RawIndexDaily.__table__,
+                RawMacroIndicator.__table__,
+                RawMarginBalance.__table__,
+                RawCommodityDaily.__table__,
+            ],
+        )
+    except Exception as e:  # noqa: BLE001 - 自愈失败不阻断启动
+        logger.warning("启动自愈（信号看板表）失败: %s", e)
+
+
 def _seed_index_registry(db) -> None:
-    """index_registry 为空时预置 12 行（幂等）。与 init/12 同源。"""
+    """index_registry 为空时预置 16 行（幂等）。与 init/12 同源。"""
     from sqlalchemy import func, select
 
     from .models.valuation import IndexRegistry
@@ -346,7 +378,11 @@ def _seed_index_registry(db) -> None:
             "('000001','上证指数',NULL,'none',0,'akshare 无该指数的指数级 PE/PB（lg 无该宽基，csindex 不覆盖上交所发布指数）',9), "
             "('399001','深证成指',NULL,'none',0,'akshare 无该指数的指数级 PE/PB（csindex 不覆盖深交所发布指数）',10), "
             "('399006','创业板指',NULL,'none',0,'akshare 无该指数的指数级 PE/PB（lg 仅有创业板50，csindex 不覆盖国证/深交所指数）',11), "
-            "('886037','微盘',NULL,'none',0,'akshare 双源皆无微盘股指数级 PE/PB 数据',12) "
+            "('886037','微盘',NULL,'none',0,'akshare 双源皆无微盘股指数级 PE/PB 数据',12), "
+            "('930955','中证红利低波动100',NULL,'csindex',1,NULL,13), "
+            "('H30269','中证红利低波动',NULL,'csindex',1,NULL,14), "
+            "('000922','中证红利',NULL,'csindex',1,NULL,15), "
+            "('000015','上证红利',NULL,'csindex',1,NULL,16) "
             "ON DUPLICATE KEY UPDATE name_cn = VALUES(name_cn)"
         )
     )
@@ -396,6 +432,7 @@ async def lifespan(app: FastAPI):
     _ensure_portfolio_tables()
     _ensure_valuation_tables()
     _ensure_pcf_tables()
+    _ensure_signal_board_tables()
     # 启动时后台预热 A 股标的目录，使名称解析（图表标题）稳定可用
     threading.Thread(target=symbol_catalog.warmup, daemon=True).start()
     yield
@@ -440,6 +477,7 @@ app.include_router(market.router, prefix="/api/market", tags=["market"])  # /api
 app.include_router(roadmap.router, prefix="/api/roadmap", tags=["roadmap"])  # /api/roadmap
 app.include_router(drawboard.router, prefix="/api/drawboard", tags=["drawboard"])
 app.include_router(valuation.router, prefix="/api/valuation", tags=["valuation"])  # /api/valuation
+app.include_router(signal_board.router, prefix="/api/signal-board", tags=["signal-board"])  # /api/signal-board
 app.include_router(etf_flow.router, prefix="/api/etf-flow", tags=["etf-flow"])  # /api/etf-flow
 app.include_router(pcf_pressure.router, prefix="/api/pcf-pressure", tags=["pcf-pressure"])
 app.include_router(event_dashboard.router, prefix="/api/event", tags=["event"])  # /api/event

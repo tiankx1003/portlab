@@ -459,12 +459,12 @@ onMounted(loadAll)
   background: var(--surface);
   text-decoration: none;
   color: var(--text);
-  transition: box-shadow 0.2s, transform 0.2s, border-color 0.2s;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
 }
 .entry-card:hover {
-  box-shadow: 0 8px 24px var(--shadow);
+  border-color: transparent;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.10);
   transform: translateY(-2px);
-  border-color: var(--primary);
 }
 .entry-icon {
   font-size: 26px;

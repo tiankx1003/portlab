@@ -35,4 +35,4 @@
 | 029 | [前端 dev server 配置化（端口 / 代理目标 / host 白名单）](docs/tasks/029-frontend-devserver-config.md) | VITE_PORT/VITE_BACKEND_TARGET/VITE_ALLOWED_HOSTS 三变量；修 VITE_BACKEND_TARGET 未透传隐患；vite.config.ts + Dockerfile + compose + .env | ☑ |
 | 030 | [修复 mcp 容器在 Docker Desktop 启动失败](docs/tasks/030-fix-mcp-docker-startup.md) | ① 嵌套 bind mount 冲突（改 ./docs:/docs:ro 整目录挂载）② PYTHONPATH 缺失（src 布局补 PYTHONPATH=/app/src）；两坑被首次挂载失败掩盖，mcp 此前未在 mac 真正跑起 | ☑ |
 | 031 | [导航栏图标状态化配色（钥匙 / MCP，主题适配）](docs/tasks/031-nav-icon-status-color.md) | 钥匙 Tushare 启用→金 / MCP 运行→绿、非运行→灰；新增主题变量 --accent-gold/--accent-green；修 MCP 刷新后不显色（补 onMounted） | ☑ |
-| 032 | [估值与信号看板（估值重构 + 三层共振）](docs/tasks/032-valuation-signal-board.md) | 三层共振信号看板：技术估值(MA120/回撤/PE/PB/股息率/股债比价)+大类资产(全收益vs5年均线+创业板/上证比+基金发行)+资金宏观(社融/M1M2/PMI/PPI/融资融券/北向)；AkShare为主+Tushare5000积分补强；吸收027，下线016旧码，复用024数据通路 | ☐ |
+| 032 | [估值与信号看板（估值重构 + 三层共振）](docs/tasks/032-valuation-signal-board.md) | 三层共振信号看板：技术估值(MA120/回撤/PE/PB/股息率/股债比价)+大类资产(全收益vs5年均线+创业板/上证比+基金发行)+资金宏观(社融/M1M2/PMI/PPI/融资融券/北向)；AkShare为主+Tushare5000积分补强；吸收027，下线016旧码，复用024数据通路 | ☑ |

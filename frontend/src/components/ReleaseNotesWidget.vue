@@ -155,7 +155,7 @@ function renderMarkdown(src: string): string {
   justify-content: center;
 }
 .rn-panel {
-  width: 480px;
+  width: 750px;
   max-width: calc(100vw - 32px);
   max-height: 80vh;
   display: flex;

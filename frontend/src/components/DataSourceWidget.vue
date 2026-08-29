@@ -267,7 +267,7 @@ async function clearToken() {
   justify-content: center;
 }
 .ds-panel {
-  width: 420px;
+  width: 750px;
   max-width: calc(100vw - 32px);
   max-height: 80vh;
   display: flex;

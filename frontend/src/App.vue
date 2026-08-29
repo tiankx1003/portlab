@@ -26,7 +26,6 @@ import ReleaseNotesWidget from './components/ReleaseNotesWidget.vue'
         <RouterLink to="/grid">网格交易</RouterLink>
         <RouterLink to="/portfolio">组合回测</RouterLink>
         <RouterLink to="/arena">策略擂台</RouterLink>
-        <RouterLink to="/etf-flow">ETF 流向</RouterLink>
         <RouterLink to="/valuation">估值</RouterLink>
         <RouterLink to="/event">事件看板</RouterLink>
       </nav>
@@ -63,7 +62,36 @@ import ReleaseNotesWidget from './components/ReleaseNotesWidget.vue'
           :title="theme === 'dark' ? '切换到日间模式' : '切换到夜间模式'"
           @click="toggleTheme"
         >
-          <span class="thumb">{{ theme === 'dark' ? '🌙' : '☀️' }}</span>
+          <span class="thumb">
+            <!-- 夜间：月亮 -->
+            <svg
+              v-if="theme === 'dark'"
+              class="theme-icon"
+              viewBox="0 0 1024 1024"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
+            >
+              <path
+                d="M520.832 160.192L512 160c-11.904 0-23.68 0.64-35.2 1.728l-6.08 0.64-8.32 1.088-11.84 1.92a352 352 0 1 0 409.6 398.848l1.408-10.688 0.704-6.336 0.96-11.584c0.512-7.808 0.768-15.68 0.768-23.616a14.08 14.08 0 0 0-22.272-11.392c-19.52 14.144-35.712 23.936-48.64 29.312l-9.792 3.712a228.8 228.8 0 0 1-288.96-303.36c4.16-9.792 15.616-27.776 34.304-54.144a10.112 10.112 0 0 0-7.808-16z m-111.872 89.6l5.888-2.176a299.2 299.2 0 0 0 361.536 361.536A281.728 281.728 0 0 1 512 793.6a281.728 281.728 0 0 1-103.04-543.744z"
+                fill="currentColor"
+              />
+            </svg>
+            <!-- 日间：太阳 -->
+            <svg v-else class="theme-icon" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path
+                d="M512 362.666667a149.333333 149.333333 0 1 0 0 298.666666 149.333333 149.333333 0 0 0 0-298.666666z m0-85.333334a234.666667 234.666667 0 1 1 0 469.333334 234.666667 234.666667 0 0 1 0-469.333334zM819.2 469.333333H896a42.666667 42.666667 0 1 1 0 85.333334h-76.8a42.666667 42.666667 0 1 1 0-85.333334zM128 469.333333h76.8a42.666667 42.666667 0 0 1 0 85.333334H128a42.666667 42.666667 0 1 1 0-85.333334zM554.666667 819.2V896a42.666667 42.666667 0 1 1-85.333334 0v-76.8a42.666667 42.666667 0 1 1 85.333334 0zM554.666667 128v76.8a42.666667 42.666667 0 1 1-85.333334 0V128a42.666667 42.666667 0 0 1 85.333334 0z"
+                fill="currentColor"
+              />
+              <path
+                d="M759.381333 699.050667l54.314667 54.314666a42.666667 42.666667 0 0 1-60.330667 60.330667l-54.314666-54.314667a42.666667 42.666667 0 0 1 60.330666-60.330666zM270.634667 210.304l54.314666 54.314667a42.666667 42.666667 0 1 1-60.330666 60.330666L210.304 270.634667A42.666667 42.666667 0 1 1 270.634667 210.346667z"
+                fill="currentColor"
+              />
+              <path
+                d="M324.949333 759.381333l-54.314666 54.314667a42.666667 42.666667 0 0 1-60.330667-60.330667l54.314667-54.314666a42.666667 42.666667 0 1 1 60.330666 60.330666zM813.696 270.634667l-54.314667 54.314666a42.666667 42.666667 0 1 1-60.330666-60.330666l54.314666-54.314667a42.666667 42.666667 0 1 1 60.330667 60.330667z"
+                fill="currentColor"
+              />
+            </svg>
+          </span>
         </button>
       </div>
     </header>
@@ -198,7 +226,7 @@ body {
   gap: 12px;
 }
 .content {
-  padding: 24px 32px;
+  padding: 14px 32px;
   max-width: 1600px;
   margin: 0 auto;
 }
@@ -251,14 +279,19 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
-  line-height: 1;
+  color: var(--accent-gold); /* 日间：金色太阳（currentColor），亮色主题下为 #bf8700 */
   transition: transform 0.2s;
+}
+.theme-icon {
+  width: 15px;
+  height: 15px;
+  display: block;
 }
 .theme-switch.dark {
   background: #ffffff; /* 夜间：白色轨道，在深色导航上清晰可见 */
 }
 .theme-switch.dark .thumb {
   transform: translateX(22px);
+  color: #c0c4cc; /* 夜间：银灰色月牙 */
 }
 </style>

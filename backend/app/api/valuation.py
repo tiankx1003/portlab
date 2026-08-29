@@ -3,7 +3,6 @@
 - GET ``/api/valuation/indices``：返回 index_registry（12 项，含 supported/note）。
 - GET ``/api/valuation/single``：单指数 ensure → 通道+分位 → SingleValuationData。
 - GET ``/api/valuation/overlay``：多指数 ensure → 共同交易日归一化 → OverlayData。
-- GET ``/api/valuation?symbol=``：016 旧端点，内部转发 single(all) 并映射为旧形态（向后兼容）。
 """
 
 from datetime import date
@@ -58,34 +57,3 @@ def overlay(
     return ApiResponse.ok(
         data=build_overlay_valuation(db, syms, lookback, base, start_date, end_date)
     )
-
-
-@router.get("", response_model=ApiResponse)
-def valuation(symbol: str = "000300", db: Session = Depends(get_db)) -> ApiResponse:
-    """016 旧端点（向后兼容）：内部转发 single(lookback=all) 并映射为旧形态。
-
-    顺带修复 016 的 ``创业板指`` KeyError——现在 unsupported 指数返回 available=false + note。
-    """
-    data = build_single_valuation(db, symbol, "all", None, None)
-    return ApiResponse.ok(data=_to_legacy(data))
-
-
-def _to_legacy(d: dict) -> dict:
-    """SingleValuationData → 016 旧形态（available/reason/series:[date,pe]）。"""
-    if not d.get("available"):
-        return {"available": False, "reason": d.get("note") or d.get("fetch_warning") or "暂无数据"}
-    dates = d["dates"]
-    pe = d["pe_ttm"]
-    series = [[dates[i], pe[i]] for i in range(len(dates)) if pe[i] is not None]
-    ch = d.get("channel") or {}
-    return {
-        "available": True,
-        "symbol": d["index_code"],
-        "name": d["name_cn"],
-        "current_pe": d.get("current_pe"),
-        "percentile": d.get("percentile"),
-        "min": ch.get("l1_min"),
-        "max": ch.get("l5_max"),
-        "as_of": d.get("as_of"),
-        "series": series[-300:],
-    }

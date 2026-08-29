@@ -733,25 +733,103 @@ export async function getPcfPressure(symbol: string): Promise<ApiResponse<PcfPre
   return res.data
 }
 
-// ---- valuation: 估值温度计（016）----
-export interface ValuationData {
-  available: boolean
-  reason?: string
-  symbol?: string
-  name?: string
-  current_pe?: number
-  percentile?: number // 0~100，越大越贵
-  min?: number
-  max?: number
-  as_of?: string
-  series?: [string, number][] // (date, pe)
+// ---- signal-board: 估值与信号看板（032）----
+export type Light = 'green' | 'yellow' | 'red' | 'grey'
+
+export interface SignalItem {
+  key: string
+  label: string
+  value?: number | null
+  display: string
+  light: Light
+  hint?: string | null
 }
 
-/**
- * @deprecated 016 旧端点（向后兼容）。新代码用 getSingleValuation / getOverlayValuation。
- */
-export async function getValuation(symbol: string): Promise<ApiResponse<ValuationData>> {
-  const res = await http.get<ApiResponse<ValuationData>>('/valuation', { params: { symbol } })
+export interface ChartSeries {
+  dates: string[]
+  series: Record<string, (number | null)[]>
+}
+
+export interface TargetSignalsData {
+  symbol: string
+  name_cn: string
+  resolved_index?: string | null
+  index_name?: string | null
+  as_of?: string | null
+  metrics: SignalItem[]
+  layer_light: Light
+  pe_channel_chart?: ChartSeries | null
+  equity_bond_chart?: ChartSeries | null
+  warning?: string | null
+}
+
+export interface MarketSignalsData {
+  as_of?: string | null
+  metrics: SignalItem[]
+  layer_light: Light
+  mean_anchor_chart?: ChartSeries | null
+  equity_bond_chart?: ChartSeries | null
+  ratio_chart?: ChartSeries | null
+  commodity_chart?: ChartSeries | null
+  warning?: string | null
+}
+
+export interface CapitalMacroSignalsData {
+  as_of?: string | null
+  metrics: SignalItem[]
+  layer_light: Light
+  macro_chart?: ChartSeries | null
+  margin_chart?: ChartSeries | null
+  etf_share_chart?: ChartSeries | null
+  northbound_chart?: ChartSeries | null
+  warning?: string | null
+}
+
+export interface ResonanceData {
+  layer1: Light
+  layer2: Light
+  layer3: Light
+  overall_status: string
+  action_advice: string
+  as_of?: string | null
+  target: TargetSignalsData
+  market: MarketSignalsData
+  macro: CapitalMacroSignalsData
+}
+
+export async function getTargetSignals(
+  symbol: string,
+  lookback: string,
+): Promise<ApiResponse<TargetSignalsData>> {
+  const res = await http.get<ApiResponse<TargetSignalsData>>('/signal-board/target', {
+    params: { symbol, lookback },
+  })
+  return res.data
+}
+
+export async function getMarketSignals(lookback: string): Promise<ApiResponse<MarketSignalsData>> {
+  const res = await http.get<ApiResponse<MarketSignalsData>>('/signal-board/market', {
+    params: { lookback },
+  })
+  return res.data
+}
+
+export async function getCapitalMacroSignals(
+  lookback: string,
+): Promise<ApiResponse<CapitalMacroSignalsData>> {
+  const res = await http.get<ApiResponse<CapitalMacroSignalsData>>('/signal-board/macro', {
+    params: { lookback },
+  })
+  return res.data
+}
+
+export async function getResonance(
+  symbol: string,
+  lookback: string,
+): Promise<ApiResponse<ResonanceData>> {
+  const res = await http.get<ApiResponse<ResonanceData>>('/signal-board/resonance', {
+    params: { symbol, lookback },
+  })
   return res.data
 }
 
