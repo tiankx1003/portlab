@@ -36,3 +36,4 @@
 | 030 | [修复 mcp 容器在 Docker Desktop 启动失败](docs/tasks/030-fix-mcp-docker-startup.md) | ① 嵌套 bind mount 冲突（改 ./docs:/docs:ro 整目录挂载）② PYTHONPATH 缺失（src 布局补 PYTHONPATH=/app/src）；两坑被首次挂载失败掩盖，mcp 此前未在 mac 真正跑起 | ☑ |
 | 031 | [导航栏图标状态化配色（钥匙 / MCP，主题适配）](docs/tasks/031-nav-icon-status-color.md) | 钥匙 Tushare 启用→金 / MCP 运行→绿、非运行→灰；新增主题变量 --accent-gold/--accent-green；修 MCP 刷新后不显色（补 onMounted） | ☑ |
 | 032 | [估值与信号看板（估值重构 + 三层共振）](docs/tasks/032-valuation-signal-board.md) | 三层共振信号看板：技术估值(MA120/回撤/PE/PB/股息率/股债比价)+大类资产(全收益vs5年均线+创业板/上证比+基金发行)+资金宏观(社融/M1M2/PMI/PPI/融资融券/北向)；AkShare为主+Tushare5000积分补强；吸收027，下线016旧码，复用024数据通路 | ☑ |
+| 033 | [探索页：MA5Y notebook 对齐验证](docs/tasks/033-explore-ma5y-validation.md) | 估值页不动，新增 /explore 沙盒：股债比价全历史 1260 交易日滚动通道(±1σ/±1.5σ+全历史分位+PE均值线)与现行窗口口径对照 + 单标的五年之锚(±15%/+28%卖出线/ma60) + MA5Y 分档定投回测(backtest_drip：分档买入+突破卖半+现金计息)；与 notebook 对数验证通过后分批合并回正式页 | ☐ |
